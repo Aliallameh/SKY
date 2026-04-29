@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skyscouter"
+version = "0.1.0"
+description = "Skyscouter Phase 1 — onboard counter-UAS perception pipeline"
+authors = [{ name = "Skyscouter Machine Vision" }]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.23",
+    "opencv-python>=4.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+yolo = ["ultralytics>=8.1.0"]
+dev = ["pytest>=7.4"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["skyscouter*"]
+exclude = ["tests*", "scripts*"]

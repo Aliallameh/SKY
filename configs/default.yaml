@@ -1,0 +1,160 @@
+# Skyscouter Phase 1 — default pipeline configuration
+# All thresholds and parameters are externalized here per PRD NFR-MAINT-001.
+# No magic numbers in the code.
+
+schema_version: "skyscout.config.v1"
+profile_name: "default_bench_replay"
+
+# ---------------- Frame source ----------------
+source:
+  # type: "video_file" | "image_folder" | "live_camera" (live not yet implemented)
+  type: "video_file"
+  # Read every Nth frame (1 = process all). Useful for fast iteration on long footage.
+  frame_stride: 1
+  # If True, fail loudly when source ends. If False, exit gracefully.
+  strict: true
+
+# ---------------- Camera (extrinsics + intrinsics placeholder) ----------------
+# A real calibration package is loaded by calibration_id. For bench replay on
+# arbitrary videos, the values are unknown — we set is_calibrated=false and
+# the publisher reports line_of_sight_body=null rather than guessing.
+camera:
+  calibration_id: "BENCH_REPLAY_UNCALIBRATED_v1"
+  is_calibrated: false
+  # Used only when is_calibrated=true:
+  intrinsics:
+    fx: null
+    fy: null
+    cx: null
+    cy: null
+    distortion: null
+  resolution_wh: null  # auto-detected from frames
+
+# ---------------- Detector ----------------
+detector:
+  # backend: "airborne_cv" | "yolo_ultralytics" | "yolo_onnx" | "rtdetr" | "stub"
+  # Phase 1 reacquisition starts with small airborne target candidates.
+  # This is not a semantic classifier; it is a sky-target candidate generator
+  # whose outputs must survive temporal lock gates before guidance can be valid.
+  backend: "airborne_cv"
+  # Model weights path. Use a small COCO-pretrained model as starting point.
+  # Replace with a fine-tuned anti-UAV model when available.
+  weights: "yolov8n.pt"
+  # Inference input size (square)
+  input_size: 640
+  # Detection confidence threshold. Calibration is a separate concern (FR-DET-002).
+  confidence_threshold: 0.25
+  # IoU threshold for non-maximum suppression
+  iou_threshold: 0.45
+  # Class IDs to keep. Empty list = keep all classes.
+  # COCO class 4 = airplane, 14 = bird. Drones aren't in COCO so we keep
+  # broad classes during bench replay and rely on the tracker + classifier
+  # to discriminate downstream. This is honest: COCO weights are a starting
+  # point, not a Phase 1 acceptance configuration.
+  keep_class_ids: [4, 14]
+  # If true, also keep any high-confidence small object as candidate
+  # (covers the drone-not-in-COCO case during bench replay only).
+  fallback_keep_high_conf: true
+  fallback_high_conf_threshold: 0.35
+  # Hardware
+  device: "auto"  # "auto" | "cpu" | "cuda:0"
+  # Model version tag stamped into target_state messages
+  model_version: "airborne_cv_candidate_v1_2026_04_28"
+  # Airborne CV candidate detector settings. These are intentionally in YAML
+  # because camera/lens/weather tuning belongs in config, not code.
+  sky_roi_y_max_fraction: 0.50
+  local_background_kernel: 31
+  dark_contrast_threshold: 24.0
+  min_area_px: 20
+  max_area_px: 1200
+  min_width_px: 4
+  max_width_px: 70
+  min_height_px: 4
+  max_height_px: 60
+  min_aspect_ratio: 0.35
+  max_aspect_ratio: 8.0
+  max_detections: 40
+
+# ---------------- Tracker ----------------
+tracker:
+  # backend: "single_target_kalman_lk" | "bytetrack" | "sort" | "simple"
+  backend: "single_target_kalman_lk"
+  # Match threshold (IoU)
+  match_threshold: 0.3
+  # Fallback association for tiny airborne objects whose bbox shape changes.
+  center_match_threshold_px: 80
+  # Single-target Kalman/LK reacquisition settings
+  lk_min_points: 8
+  reacquisition_radius_px: 180
+  max_primary_switches_per_second: 1.0
+  # Max age (frames a track survives without detections before being killed)
+  track_buffer_frames: 30
+  # Frames of consistent detections required to confirm a track (tentative -> tracking)
+  min_track_length: 3
+  # Ego-motion compensation: stubbed today, wired to real IMU later.
+  # When true, the tracker calls EgoMotionCompensator.warp() before association.
+  ego_motion_compensation: false  # off until IMU is wired in
+
+# ---------------- Lock state machine (PRD §12) ----------------
+lock:
+  # Labels allowed to promote to LOCKED. "airborne_candidate" means stable
+  # visual lock on a sky target, not semantic drone classification.
+  acceptable_lock_labels: ["drone", "uas", "airborne_candidate"]
+  # ACQUIRED -> TRACKING: how many consistent frames
+  acquired_to_tracking_frames: 3
+  # TRACKING -> LOCKED: how many frames of stable track + class confidence
+  tracking_to_locked_frames: 8
+  # Class confidence required to be in TRACKING/LOCKED
+  min_class_confidence: 0.30
+  # Lock-quality threshold (composite stability score, FR-LOCK-002)
+  min_lock_quality: 0.50
+  # Loss handling
+  lost_to_aborted_seconds: 2.0
+  # STRIKE_READY gates (PRD §12.1)
+  strike_ready:
+    # Continuous LOCKED duration before STRIKE_READY
+    min_locked_duration_seconds: 0.5
+    # Bbox must occupy at least this fraction of frame width
+    min_bbox_frame_fraction: 0.05
+    # Bbox center must lie within central X fraction of the frame
+    bbox_center_window: 0.5
+    # Maximum cue age permitted at STRIKE_READY (seconds). Null = ignore cue age.
+    max_cue_age_seconds: 5.0
+
+# ---------------- Cue (Phase 1 bench replay: cue is optional) ----------------
+cue:
+  # If null, the pipeline runs without a radar cue (search whole frame).
+  source: null
+  # Default cue expiry if partner does not provide one (PRD FR-CUE-002, FR-CUE-004)
+  default_expiry_ms: 1500
+  # Conservative default position uncertainty if the partner cue lacks sigma
+  default_position_sigma_m: 50.0
+
+# ---------------- Range estimation ----------------
+range:
+  # method: "none" | "size_prior" | "cue_radar" | "bbox_growth"
+  method: "none"
+  # Size-prior table (meters of physical wingspan/diagonal)
+  # Disabled until target classes and priors are committed.
+  class_size_prior_m: {}
+
+# ---------------- Evaluation / QA ----------------
+evaluation:
+  enabled: true
+  # Sparse GT CSV: frame_id,x1,y1,x2,y2,review_status,visibility,occluded,label,notes
+  gt_path: "annotations/drone_sparse_gt.csv"
+
+# ---------------- Output ----------------
+output:
+  # Save annotated video with bbox overlays
+  save_annotated_video: true
+  # JSONL output with one target_state per processed frame
+  save_target_states_jsonl: true
+  # Save raw detections for debugging
+  save_raw_detections: false
+  # Save frame-level diagnostics for evaluation/debugging
+  save_diagnostics_csv: true
+  # Save run manifest with config snapshot, git hash, environment
+  save_manifest: true
+  # Annotated video FPS (matches input by default)
+  annotated_video_fps: null

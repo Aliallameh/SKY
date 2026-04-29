@@ -1,0 +1,51 @@
+schema_version: "skyscout.airborne_training.v1"
+profile_name: "yolo11s_airborne_drone_vs_bird_v1"
+
+dataset:
+  manifest: "configs/training/airborne_dataset_manifest.yaml"
+  prepared_dir: "data/training/airborne_yolo_v1"
+  data_yaml: "data/training/airborne_yolo_v1/data.yaml"
+
+model:
+  # Start small for fast iteration. Move to yolo11m only after the acceptance
+  # gate improves and latency budget is measured.
+  family: "ultralytics_yolo"
+  base_weights: "yolo11s.pt"
+  image_size: 1024
+  pretrained: true
+
+training:
+  epochs: 5
+  batch: 8
+  patience: 20
+  workers: 0
+  device: "cpu"
+  project: "data/training/runs"
+  run_name: "yolo11s_airborne_drone_vs_bird_v1_test"
+  optimizer: "auto"
+  close_mosaic: 10
+  seed: 42
+  cache: false
+  amp: false
+
+augmentation:
+  hsv_h: 0.015
+  hsv_s: 0.45
+  hsv_v: 0.35
+  degrees: 0.0
+  translate: 0.06
+  scale: 0.45
+  shear: 0.0
+  perspective: 0.0
+  fliplr: 0.5
+  mosaic: 0.7
+  mixup: 0.05
+  copy_paste: 0.0
+
+acceptance_gate:
+  local_gt_csv: "/Users/aliallameh/Desktop/DATASETS/drone_sparse_gt_corrected (1).csv"
+  replay_video: "data/videos/my_drone_chase.MP4"
+  min_matched_positive_rate: 0.90
+  max_median_center_error_px: 25.0
+  max_labeled_track_id_switches: 3
+  max_false_lock_negative_frames: 0

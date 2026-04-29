@@ -1,0 +1,40 @@
+# Model weights (auto-downloaded on demand)
+*.pt
+*.pth
+
+# Training datasets (can be rebuilt from manifest)
+data/training/airborne_yolo_v1/
+data/training/aod4_only_test/
+data/training/local_sparse_gt_yolo/
+
+# Training outputs
+runs/
+data/outputs/
+
+# Video files (large, use separately)
+data/videos/
+*.mp4
+*.MP4
+*.avi
+*.mov
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.claude/
+
+# Environment
+.venv/
+venv/

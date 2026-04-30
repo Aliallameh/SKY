@@ -4,8 +4,10 @@
 
 # Training datasets (can be rebuilt from manifest)
 data/training/airborne_yolo_v1/
+data/training/airborne_yolo_v2/
 data/training/aod4_only_test/
 data/training/local_sparse_gt_yolo/
+data/training/anti_uav300_smoke_test/
 
 # Training outputs
 runs/

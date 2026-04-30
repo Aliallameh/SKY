@@ -34,6 +34,37 @@ sources:
       "3": helicopter
     notes: "AOD-4 extracted 2026-04-28: 15.7k train, 4.5k val, 2.2k test. Classes 0-3 → airplane,bird,drone,helicopter balanced ~5.5k each."
 
+  # Anti-UAV300 RGBT — purpose-built counter-UAV benchmark dataset.
+  # 318 sequences (160 train / 67 val / 91 test), ~296K annotated frames,
+  # both RGB (visible.mp4) and IR (infrared.mp4). We use RGB only here so
+  # the domain matches our RGB camera pipeline.
+  #
+  # max_positives_per_seq = 60 keeps per-class drone count comparable to AOD-4
+  # (~6K drone objects). With 160 train seqs × ~77% visible rate × stride 5,
+  # raw positives ≈ 24K; capped to 60/seq ≈ 9.6K, well-balanced with AOD-4.
+  # Increase cap or lower stride if you want more drone coverage.
+  #
+  # IMPORTANT: paths are machine-specific. Edit root to match your local path.
+  - name: anti_uav300_rgb
+    enabled: true
+    type: anti_uav_rgbt
+    root: "C:/Users/Ali/Desktop/Anti-UAV-RGBT"
+    modality: rgb
+    splits:
+      - train
+      - val
+      - test
+    drone_label: drone
+    stride: 5                    # sample every 5th frame to reduce near-duplicate frames
+    max_positives_per_seq: 60    # cap per sequence to balance with AOD-4
+    max_negatives_per_seq: 5     # a few hard negatives per sequence (drone absent frames)
+    seed: 42
+    notes: >
+      Anti-UAV300 RGB. 318 seqs, ~934 frames/seq average. Official challenge
+      dataset (CVPR 2020/2021/2023). Provides real sky drone tracking sequences
+      with per-frame visibility flags — drone can disappear/reappear. Adds
+      long-range small-pixel drone instances not in AOD-4.
+
   # Add when available. Expected role: drone-vs-bird hard discrimination.
   - name: drone_vs_bird_challenge
     enabled: false

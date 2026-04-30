@@ -15,18 +15,18 @@ model:
   pretrained: true
 
 training:
-  epochs: 5
+  epochs: 80
   batch: 8
   patience: 20
-  workers: 0
-  device: "cpu"
+  workers: 8
+  device: "auto"
   project: "data/training/runs"
-  run_name: "yolo11s_airborne_drone_vs_bird_v1_test"
+  run_name: "yolo11s_airborne_drone_vs_bird_v1"
   optimizer: "auto"
   close_mosaic: 10
   seed: 42
   cache: false
-  amp: false
+  amp: true
 
 augmentation:
   hsv_h: 0.015
@@ -43,8 +43,8 @@ augmentation:
   copy_paste: 0.0
 
 acceptance_gate:
-  local_gt_csv: "/Users/aliallameh/Desktop/DATASETS/drone_sparse_gt_corrected (1).csv"
-  replay_video: "data/videos/my_drone_chase.MP4"
+  local_gt_csv: "C:/Users/Ali/Documents/Datasets/drone_sparse_gt_corrected.csv"
+  replay_video: "C:/Users/Ali/Desktop/SKY/data/videos/my_drone_chase.MP4"
   min_matched_positive_rate: 0.90
   max_median_center_error_px: 25.0
   max_labeled_track_id_switches: 3

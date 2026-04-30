@@ -11,6 +11,10 @@ data/training/local_sparse_gt_yolo/
 runs/
 data/outputs/
 
+# Local training logs (UTF-16 PowerShell tee output, can grow into tens of MB)
+data/training/*.log
+data/training/runs/
+
 # Video files (large, use separately)
 data/videos/
 *.mp4

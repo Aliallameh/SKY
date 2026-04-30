@@ -42,6 +42,18 @@ def main() -> int:
 
     weights = args.weights or model_cfg.get("base_weights", "yolo11s.pt")
     model = YOLO(weights)
+
+    # Resolve "project" to an absolute path. Ultralytics 8.4.x will otherwise
+    # nest a relative project dir under its own default `runs/detect/`,
+    # producing surprising paths like
+    # `runs/detect/data/training/runs/<run_name>/`. We always want the run to
+    # land at `<repo_root>/<project>/<run_name>/` exactly.
+    project_cfg = str(train_cfg.get("project", "data/training/runs"))
+    project_path = Path(project_cfg)
+    if not project_path.is_absolute():
+        project_path = (Path.cwd() / project_path).resolve()
+    project_path.mkdir(parents=True, exist_ok=True)
+
     train_args = {
         "data": str(data_yaml),
         "imgsz": args.imgsz or int(model_cfg.get("image_size", 1280)),
@@ -49,7 +61,7 @@ def main() -> int:
         "batch": args.batch or int(train_cfg.get("batch", 8)),
         "patience": int(train_cfg.get("patience", 20)),
         "workers": int(train_cfg.get("workers", 4)),
-        "project": str(train_cfg.get("project", "data/training/runs")),
+        "project": str(project_path),
         "name": str(train_cfg.get("run_name", "yolo11s_airborne_drone_vs_bird_v1")),
         "optimizer": train_cfg.get("optimizer", "auto"),
         "close_mosaic": int(train_cfg.get("close_mosaic", 10)),

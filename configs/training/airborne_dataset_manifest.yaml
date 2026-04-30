@@ -22,7 +22,7 @@ sources:
   - name: aod4_airborne_objects
     enabled: true
     type: yolo_detection
-    root: "/Users/aliallameh/Desktop/DATASETS/extracted/AOD 4"
+    root: "C:/Users/Ali/Documents/Datasets/AOD 4"
     images_dir: "Images"
     labels_dir: "Annotations/YOLOv8 format"
     label_subdir: "labels"
@@ -65,8 +65,8 @@ sources:
   - name: local_my_drone_chase_sparse_gt
     enabled: true
     type: skyscouter_sparse_gt_video
-    video_path: "data/videos/my_drone_chase.MP4"
-    gt_csv: "/Users/aliallameh/Desktop/DATASETS/drone_sparse_gt_corrected (1).csv"
+    video_path: "C:/Users/Ali/Desktop/SKY/data/videos/my_drone_chase.MP4"
+    gt_csv: "C:/Users/Ali/Documents/Datasets/drone_sparse_gt_corrected.csv"
     include_labels:
       - drone
       - negative

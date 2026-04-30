@@ -1,0 +1,55 @@
+schema_version: "skyscout.airborne_training.v1"
+profile_name: "yolo11s_airborne_drone_vs_bird_v2"
+
+# v2 — AOD-4 + Anti-UAV300 RGB expanded training dataset.
+# Added ~9.6K drone frames from Anti-UAV300 (60 positives/seq × 160 train seqs)
+# on top of the AOD-4 baseline (~6.3K drone images).
+# Goal: close the matched-positive-rate gap (0.705 → ≥0.90) via better
+# coverage of long-range / small-pixel / disappearing drone scenarios.
+
+dataset:
+  manifest: "configs/training/airborne_dataset_manifest.yaml"
+  prepared_dir: "data/training/airborne_yolo_v2"
+  data_yaml: "data/training/airborne_yolo_v2/data.yaml"
+
+model:
+  family: "ultralytics_yolo"
+  base_weights: "yolo11s.pt"    # start from COCO pretrained, not v1 weights
+  image_size: 1024
+  pretrained: true
+
+training:
+  epochs: 80
+  batch: 8
+  patience: 20
+  workers: 8
+  device: "auto"
+  project: "data/training/runs"
+  run_name: "yolo11s_airborne_drone_vs_bird_v2"
+  optimizer: "auto"
+  close_mosaic: 10
+  seed: 42
+  cache: false
+  amp: true
+
+augmentation:
+  hsv_h: 0.015
+  hsv_s: 0.45
+  hsv_v: 0.35
+  degrees: 0.0
+  translate: 0.06
+  scale: 0.50              # slightly wider scale range for tiny drone coverage
+  shear: 0.0
+  perspective: 0.0
+  fliplr: 0.5
+  mosaic: 0.7
+  mixup: 0.05
+  copy_paste: 0.0
+
+acceptance_gate:
+  local_gt_csv: "C:/Users/Ali/Documents/Datasets/drone_sparse_gt_corrected.csv"
+  replay_video: "C:/Users/Ali/Desktop/SKY/data/videos/my_drone_chase.MP4"
+  min_matched_positive_rate: 0.90
+  max_median_center_error_px: 25.0
+  max_labeled_track_id_switches: 3
+  max_false_lock_negative_frames: 0

@@ -104,13 +104,18 @@ def main() -> int:
         if not source.get("enabled", False) and not args.include_disabled and source_name not in selected_sources:
             summary["sources"][source["name"]] = {"enabled": False, "samples": 0, "reason": "disabled"}
             continue
-        samples = list(_load_source_samples(source, class_to_id))
-        source_summary = {"enabled": True, "samples": len(samples), "objects": 0, "negatives": 0, "class_counts": {}}
-        for sample in samples:
+        # Stream samples directly to disk — do NOT materialise into a list.
+        # Video-based sources (anti_uav_rgbt, skyscouter_sparse_gt_video) hold
+        # one decoded frame at a time; buffering all frames would exhaust RAM.
+        source_summary = {"enabled": True, "samples": 0, "objects": 0, "negatives": 0, "class_counts": {}}
+        n_written = 0
+        for sample in _load_source_samples(source, class_to_id):
             split = _choose_split(f"{sample.source_name}:{sample.source_id}", split_fracs, seed)
             _write_sample(out_dir, split, sample, args.link_mode)
             total_samples += 1
+            n_written += 1
             obj_count = len(sample.objects)
+            source_summary["samples"] += 1
             source_summary["objects"] += obj_count
             summary["splits"][split]["images"] += 1
             summary["splits"][split]["objects"] += obj_count
@@ -122,6 +127,8 @@ def main() -> int:
                 source_summary["class_counts"][name] = source_summary["class_counts"].get(name, 0) + 1
                 split_counts = summary["splits"][split]["class_counts"]
                 split_counts[name] = split_counts.get(name, 0) + 1
+            if n_written % 500 == 0:
+                print(f"  [{source_name}] {n_written} samples written …", flush=True)
         summary["sources"][source["name"]] = source_summary
 
     _write_data_yaml(out_dir, class_names)
@@ -149,6 +156,8 @@ def _load_source_samples(source: Dict[str, object], class_to_id: Dict[str, int])
         yield from _load_yolo_detection(source, class_to_id)
     elif source_type == "skyscouter_sparse_gt_video":
         yield from _load_sparse_gt_video(source, class_to_id)
+    elif source_type == "anti_uav_rgbt":
+        yield from _load_anti_uav_rgbt(source, class_to_id)
     else:
         raise ValueError(f"Unsupported source type for {source.get('name')}: {source_type}")
 
@@ -207,6 +216,180 @@ def _load_yolo_detection(source: Dict[str, object], class_to_id: Dict[str, int])
             objects=objects,
             negative=len(objects) == 0,
         )
+
+
+def _load_anti_uav_rgbt(source: Dict[str, object], class_to_id: Dict[str, int]) -> Iterable[Sample]:
+    """Load Anti-UAV300 RGBT sequences as YOLO detection samples.
+
+    Dataset layout (one folder per sequence):
+        <root>/<split>/<seq_name>/
+            visible.mp4        — RGB video
+            visible.json       — {"exist": [1,1,0,...], "gt_rect": [[x,y,w,h],...]}
+            infrared.mp4       — thermal IR video  (not used here; RGB only)
+            infrared.json      — same schema
+
+    Annotation convention:
+        exist[t] = 1  → drone visible at frame t, annotate as "drone"
+        exist[t] = 0  → drone absent, extract as hard negative if
+                         max_negatives_per_seq > 0
+
+    Config keys (all optional):
+        modality            : "rgb" (default) | "ir" | "both"
+        splits              : list of sub-folder names to include
+                              default: ["train", "val", "test"]
+        max_positives_per_seq : int | null — cap positive frames per sequence
+                              (null = no cap; use to balance with AOD-4)
+        max_negatives_per_seq : int — max hard-negative frames per sequence
+                              (default 0 = no negatives extracted)
+        stride              : int — step between sampled frames (default 1)
+        drone_label         : target class name for visible drone frames
+                              (default "drone")
+    """
+    import random as _random
+
+    root = Path(str(source["root"])).expanduser()
+    if not root.exists():
+        raise FileNotFoundError(f"Anti-UAV root not found for {source['name']}: {root}")
+
+    modality: str = str(source.get("modality", "rgb")).lower()
+    splits_to_use: List[str] = [str(s) for s in source.get("splits", ["train", "val", "test"])]
+    max_pos: Optional[int] = source.get("max_positives_per_seq", None)
+    if max_pos is not None:
+        max_pos = int(max_pos)
+    max_neg: int = int(source.get("max_negatives_per_seq", 0))
+    stride: int = max(1, int(source.get("stride", 1)))
+    drone_label: str = str(source.get("drone_label", "drone"))
+    rng_seed: int = int(source.get("seed", 42))
+
+    if drone_label not in class_to_id:
+        raise ValueError(
+            f"drone_label '{drone_label}' is not in target_classes for {source['name']}"
+        )
+    drone_id = class_to_id[drone_label]
+
+    # Which (video_filename, json_filename) pairs to use per modality
+    modality_pairs: List[Tuple[str, str]] = []
+    if modality in ("rgb", "both"):
+        modality_pairs.append(("visible.mp4", "visible.json"))
+    if modality in ("ir", "both"):
+        modality_pairs.append(("infrared.mp4", "infrared.json"))
+    if not modality_pairs:
+        raise ValueError(f"Unknown modality '{modality}' for {source['name']}")
+
+    source_name = str(source["name"])
+
+    for split in splits_to_use:
+        split_dir = root / split
+        if not split_dir.is_dir():
+            print(f"[WARN] Anti-UAV split dir not found, skipping: {split_dir}", flush=True)
+            continue
+        seq_dirs = sorted(p for p in split_dir.iterdir() if p.is_dir())
+        for seq_dir in seq_dirs:
+            for video_file, json_file in modality_pairs:
+                video_path = seq_dir / video_file
+                ann_path = seq_dir / json_file
+                if not video_path.exists() or not ann_path.exists():
+                    continue
+
+                ann = json.loads(ann_path.read_text(encoding="utf-8"))
+                exist_flags: List[int] = ann.get("exist", [])
+                gt_rects: List[List[float]] = ann.get("gt_rect", [])
+                n_frames = len(exist_flags)
+                if n_frames == 0:
+                    continue
+
+                # Build candidate positive and negative frame indices
+                pos_indices = [
+                    i for i in range(0, n_frames, stride)
+                    if i < len(exist_flags) and exist_flags[i] == 1
+                ]
+                neg_indices = [
+                    i for i in range(0, n_frames, stride)
+                    if i < len(exist_flags) and exist_flags[i] == 0
+                ]
+
+                # Apply per-sequence caps with deterministic shuffle
+                rng = _random.Random(rng_seed ^ hash(str(seq_dir) + video_file))
+                if max_pos is not None and len(pos_indices) > max_pos:
+                    rng.shuffle(pos_indices)
+                    pos_indices = pos_indices[:max_pos]
+                    pos_indices.sort()
+                if max_neg > 0 and len(neg_indices) > max_neg:
+                    rng.shuffle(neg_indices)
+                    neg_indices = neg_indices[:max_neg]
+                    neg_indices.sort()
+                elif max_neg == 0:
+                    neg_indices = []
+
+                all_indices = sorted(set(pos_indices) | set(neg_indices))
+                if not all_indices:
+                    continue
+
+                cap = cv2.VideoCapture(str(video_path))
+                if not cap.isOpened():
+                    print(f"[WARN] Cannot open video: {video_path}", flush=True)
+                    continue
+
+                try:
+                    prev_idx = -1
+                    for frame_idx in all_indices:
+                        # Seek only when necessary (sequential reads are faster)
+                        if frame_idx != prev_idx + 1:
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                        ok, img = cap.read()
+                        prev_idx = frame_idx
+                        if not ok or img is None:
+                            continue
+
+                        height, width = img.shape[:2]
+                        is_positive = (frame_idx in set(pos_indices))
+                        objects: List[YoloObject] = []
+
+                        if is_positive and frame_idx < len(gt_rects):
+                            rect = gt_rects[frame_idx]
+                            if len(rect) == 4:
+                                x, y, w_box, h_box = float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3])
+                                obj = _xywh_to_yolo(drone_id, x, y, w_box, h_box, width, height)
+                                if obj is not None:
+                                    objects.append(obj)
+
+                        # Skip positives where rect was degenerate
+                        if is_positive and not objects:
+                            continue
+
+                        modal_tag = "rgb" if "visible" in video_file else "ir"
+                        source_id = f"{split}_{seq_dir.name}_{modal_tag}_f{frame_idx:06d}"
+                        yield Sample(
+                            source_name=source_name,
+                            source_id=source_id,
+                            image_path=None,
+                            image_bgr=img,
+                            width=width,
+                            height=height,
+                            objects=objects,
+                            negative=(not is_positive),
+                        )
+                finally:
+                    cap.release()
+
+
+def _xywh_to_yolo(
+    class_id: int, x: float, y: float, w_box: float, h_box: float, img_w: int, img_h: int
+) -> Optional[YoloObject]:
+    """Convert Anti-UAV xywh (top-left origin, pixel coords) to YOLO normalised cx,cy,w,h."""
+    x = max(0.0, x)
+    y = max(0.0, y)
+    w_box = min(w_box, img_w - x)
+    h_box = min(h_box, img_h - y)
+    if w_box <= 0 or h_box <= 0:
+        return None
+    return YoloObject(
+        class_id=class_id,
+        cx=(x + w_box * 0.5) / img_w,
+        cy=(y + h_box * 0.5) / img_h,
+        w=w_box / img_w,
+        h=h_box / img_h,
+    )
 
 
 def _split_class_map(class_map: Dict[object, object], class_to_id: Dict[str, int]) -> Tuple[Dict[str, int], Dict[str, int]]:

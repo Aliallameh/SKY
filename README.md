@@ -95,9 +95,87 @@ Outputs:
 ```
 data/outputs/run_001/annotated.mp4        — visual verification
 data/outputs/run_001/target_states.jsonl  — one TargetState per frame
+data/outputs/run_001/guidance_hints.jsonl — log-only bearing/yaw proposals
+data/outputs/run_001/mock_bridge_proposals.jsonl — optional mock bridge audit rows
 data/outputs/run_001/diagnostics.csv      — per-frame metrics
 data/outputs/run_001/run.log              — text log
 data/outputs/run_001/manifest.json        — replay manifest
+```
+
+## Visual Bearing Guidance
+
+SkyScouter now computes a log-only `GuidanceHint` from the tracked target bbox
+after the lock-state machine runs. The hint converts target pixel offset from
+the camera optical center into bearing and elevation error with a pinhole
+camera model, then proposes a bounded yaw-rate for bench replay and simulation.
+It does **not** send MAVLink, actuate a drone, or authorize autonomous action.
+
+Camera configuration lives under `guidance.camera`:
+
+- `mode: "intrinsics"` uses explicit `fx_px`, `fy_px`, `cx_px`, `cy_px`.
+- `mode: "fov"` derives focal length from horizontal FOV and frame size. If
+  `vertical_fov_deg` is null, `fy = fx` is used as a documented bench default.
+
+The output is `data/outputs/<run>/guidance_hints.jsonl`. Example row:
+
+```json
+{
+  "schema_version": "skyscout.guidance_hint.v1",
+  "frame_id": 123,
+  "track_id": 1,
+  "valid": true,
+  "valid_for_actuation": false,
+  "source_lock_state": "LOCKED",
+  "target_center_px": [968.2, 531.4],
+  "frame_center_px": [960.0, 540.0],
+  "bearing_error_deg": 0.34,
+  "elevation_error_deg": 0.36,
+  "filtered_bearing_error_deg": 0.31,
+  "yaw_rate_cmd_deg_s": 0.62,
+  "controller_mode": "yaw_p"
+}
+```
+
+Run it with the normal bench replay command; guidance is enabled in the default
+configs:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/run_pipeline.py `
+    --video data/videos/your_video.mp4 `
+    --config configs/default.yaml `
+    --output data/outputs/run_001
+```
+
+Useful FOV override:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/run_pipeline.py `
+    --video data/videos/your_video.mp4 `
+    --config configs/default.yaml `
+    --camera-hfov-deg 62 `
+    --output data/outputs/run_guidance_hfov62
+```
+
+Full math, gates, and limitations are in
+[`docs/VISUAL_BEARING_GUIDANCE.md`](docs/VISUAL_BEARING_GUIDANCE.md).
+
+## Mock Guidance Bridge
+
+The optional mock bridge consumes in-memory `GuidanceHint` rows and writes
+transport-neutral JSONL proposals to
+`data/outputs/<run>/mock_bridge_proposals.jsonl`. It does not send MAVLink,
+open a socket, or actuate anything. By default it is disabled, and when
+enabled it suppresses transport-valid proposals unless
+`guidance.camera.calibration_reviewed: true`.
+
+Enable it only for bench/simulation review:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/run_pipeline.py `
+    --video data/videos/your_video.mp4 `
+    --config configs/default.yaml `
+    --mock-bridge-enabled `
+    --output data/outputs/run_mock_bridge
 ```
 
 Run with corrected sparse GT for evaluation:

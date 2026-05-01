@@ -18,17 +18,18 @@ from ..schemas import LockState
 from ..tracking.base_tracker import Track
 
 
-# Color palette (BGR) per lock state. Visible on sky and ground backgrounds.
+# Color palette (BGR) per lock state. Red is reserved for failure/loss states;
+# committed locks use green so the overlay reads naturally in review videos.
 STATE_COLORS = {
     LockState.NO_CUE.value:       (140, 140, 140),  # gray
     LockState.CUED.value:         (255, 200, 0),    # cyan-blue
-    LockState.SEARCHING.value:    (0, 200, 255),    # orange
-    LockState.ACQUIRED.value:     (0, 255, 255),    # yellow
-    LockState.TRACKING.value:     (0, 255, 0),      # green
-    LockState.LOCKED.value:       (0, 0, 255),      # red
-    LockState.STRIKE_READY.value: (0, 0, 255),      # red (with thicker border)
-    LockState.LOST.value:         (128, 0, 255),    # magenta
-    LockState.ABORTED.value:      (60, 60, 60),     # dark gray
+    LockState.SEARCHING.value:    (0, 200, 255),    # amber
+    LockState.ACQUIRED.value:     (0, 230, 255),    # yellow
+    LockState.TRACKING.value:     (255, 210, 0),    # cyan
+    LockState.LOCKED.value:       (80, 220, 80),    # green
+    LockState.STRIKE_READY.value: (255, 120, 0),    # blue
+    LockState.LOST.value:         (0, 0, 255),      # red
+    LockState.ABORTED.value:      (0, 0, 160),      # dark red
 }
 
 
@@ -84,11 +85,22 @@ class VideoAnnotator:
             color = STATE_COLORS.get(lock_state, (200, 200, 200)) if is_primary else (180, 180, 180)
             thickness = 3 if is_primary else 1
             cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness)
-            label = f"id={tr.track_id} {tr.detection.class_label} {tr.detection.confidence:.2f}"
+            label = f"ID {tr.track_id}  {tr.detection.class_label}  conf {tr.detection.confidence:.2f}"
             cv2.putText(
                 img, label, (x1, max(0, y1 - 6)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA
+                cv2.FONT_HERSHEY_SIMPLEX, 0.52, color, 2, cv2.LINE_AA
             )
+            if bool(self._guidance_overlay_cfg.get("draw_bbox_geometry", False)):
+                self._draw_bbox_geometry(
+                    img,
+                    x=float(tr.detection.x),
+                    y=float(tr.detection.y),
+                    w=float(tr.detection.w),
+                    h=float(tr.detection.h),
+                    color=color,
+                    anchor_xy=(x2 + 8, y1),
+                    frame_center=getattr(guidance_hint, "frame_center_px", None),
+                )
             # STRIKE_READY gets a second outer border
             if is_primary and lock_state == LockState.STRIKE_READY.value:
                 cv2.rectangle(img, (x1 - 4, y1 - 4), (x2 + 4, y2 + 4), color, 1)
@@ -132,24 +144,26 @@ class VideoAnnotator:
     ) -> None:
         h, w = img.shape[:2]
         # Background strip
-        strip_h = 56
+        strip_h = 86
         overlay = img.copy()
         cv2.rectangle(overlay, (0, 0), (w, strip_h), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.55, img, 0.45, 0, img)
+        cv2.addWeighted(overlay, 0.68, img, 0.32, 0, img)
 
         color = STATE_COLORS.get(lock_state, (200, 200, 200))
-        gv_text = "GUIDANCE_VALID" if guidance_valid else "guidance_invalid"
-        gv_color = (0, 0, 255) if guidance_valid else (180, 180, 180)
+        gv_text = "GUIDANCE VALID" if guidance_valid else "GUIDANCE INVALID"
+        gv_color = (80, 220, 80) if guidance_valid else (180, 180, 180)
 
-        line1 = f"STATE: {lock_state}    {gv_text}"
+        line1 = f"STATE  {lock_state}"
         line2 = (
-            f"frame={frame_index}  conf={confidence:.2f}  "
-            f"lock_q={lock_quality:.2f}  latency={latency_ms:.1f} ms"
+            f"frame {frame_index}   confidence {confidence:.2f}   "
+            f"lock quality {lock_quality:.2f}   latency {latency_ms:.0f} ms"
         )
-        cv2.putText(img, line1, (10, 22),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2, cv2.LINE_AA)
-        cv2.putText(img, line2, (10, 46),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, gv_color, 1, cv2.LINE_AA)
+        cv2.putText(img, line1, (10, 27),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.72, color, 2, cv2.LINE_AA)
+        cv2.putText(img, gv_text, (260, 27),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.72, gv_color, 2, cv2.LINE_AA)
+        cv2.putText(img, line2, (10, 57),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.53, (235, 235, 235), 1, cv2.LINE_AA)
 
     def _draw_guidance_overlay(self, img: np.ndarray, hint: Any) -> None:
         cfg = self._guidance_overlay_cfg
@@ -177,19 +191,91 @@ class VideoAnnotator:
             elevation = getattr(hint, "filtered_elevation_error_deg", None)
             yaw_rate = getattr(hint, "yaw_rate_cmd_deg_s", 0.0)
             if bearing is None:
-                text = "bearing: n/a  yaw proposal: 0.0 deg/s"
+                text = "bearing n/a   yaw proposal 0.0 deg/s"
             else:
                 text = (
-                    f"bearing={bearing:+.2f} deg  elev={elevation:+.2f} deg  "
-                    f"yaw_prop={yaw_rate:+.1f} deg/s"
+                    f"bearing {bearing:+.2f} deg   elevation {elevation:+.2f} deg   "
+                    f"yaw proposal {yaw_rate:+.1f} deg/s"
                 )
             cv2.putText(
                 img,
                 text,
-                (10, min(img.shape[0] - 10, 74)),
+                (10, min(img.shape[0] - 10, 80)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
                 (255, 255, 255),
                 1,
+                cv2.LINE_AA,
+            )
+
+    def _draw_bbox_geometry(
+        self,
+        img: np.ndarray,
+        *,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        color: Tuple[int, int, int],
+        anchor_xy: Tuple[int, int],
+        frame_center: Optional[List[float]] = None,
+    ) -> None:
+        cx = x + w * 0.5
+        cy = y + h * 0.5
+        if frame_center is None:
+            ih, iw = img.shape[:2]
+            frame_center = [iw * 0.5, ih * 0.5]
+        dx = cx - float(frame_center[0])
+        dy = cy - float(frame_center[1])
+
+        lines = [
+            f"box {w:.0f} x {h:.0f} px",
+            f"top-left x {x:.0f}  y {y:.0f}",
+            f"center   x {cx:.0f}  y {cy:.0f}",
+            f"from center dx {dx:+.0f}  dy {dy:+.0f} px",
+        ]
+        self._draw_text_block(img, lines, anchor_xy, color)
+
+    def _draw_text_block(
+        self,
+        img: np.ndarray,
+        lines: List[str],
+        anchor_xy: Tuple[int, int],
+        color: Tuple[int, int, int],
+    ) -> None:
+        if not lines:
+            return
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        scale = 0.48
+        thickness = 1
+        pad = 7
+        line_h = 18
+        widths = [cv2.getTextSize(line, font, scale, thickness)[0][0] for line in lines]
+        block_w = max(widths) + pad * 2
+        block_h = line_h * len(lines) + pad * 2
+
+        ih, iw = img.shape[:2]
+        x = int(anchor_xy[0])
+        y = int(anchor_xy[1])
+        if x + block_w >= iw:
+            x = max(0, iw - block_w - 2)
+        if y + block_h >= ih:
+            y = max(0, ih - block_h - 2)
+        x = max(0, x)
+        y = max(0, y)
+
+        overlay = img.copy()
+        cv2.rectangle(overlay, (x, y), (x + block_w, y + block_h), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.72, img, 0.28, 0, img)
+        cv2.rectangle(img, (x, y), (x + block_w, y + block_h), color, 1)
+        for i, line in enumerate(lines):
+            cv2.putText(
+                img,
+                line,
+                (x + pad, y + pad + 11 + i * line_h),
+                font,
+                scale,
+                color,
+                thickness,
                 cv2.LINE_AA,
             )

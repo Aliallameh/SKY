@@ -32,6 +32,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--stride", type=int, default=15, help="Prefer every Nth frame when diagnostics exists")
     p.add_argument("--include-frames", default="", help="Comma-separated extra frame IDs")
     p.add_argument("--negative-frames", default="", help="Comma-separated hard-negative/no-drone frame IDs")
+    p.add_argument(
+        "--default-review-status",
+        choices=("draft", "ok", "skip"),
+        default="draft",
+        help="Initial review_status for non-negative frames",
+    )
+    p.add_argument("--default-visibility", default="", help="Initial visibility for non-negative frames")
+    p.add_argument("--default-occluded", default="", help="Initial occluded flag for non-negative frames")
+    p.add_argument(
+        "--only-include-frames",
+        action="store_true",
+        help="Use exactly --include-frames/--negative-frames instead of adding sampled or hard frames",
+    )
     return p.parse_args()
 
 
@@ -47,13 +60,17 @@ def main() -> int:
 
     diag = read_diagnostics(args.diagnostics) if args.diagnostics else {}
     negative_frames = set(parse_frame_list(args.negative_frames))
-    selected = choose_frames(
-        total,
-        diag,
-        args.samples,
-        args.stride,
-        parse_frame_list(args.include_frames) + list(negative_frames),
-    )
+    include_frames = parse_frame_list(args.include_frames)
+    if args.only_include_frames:
+        selected = sorted({f for f in include_frames + list(negative_frames) if 0 <= f < total})
+    else:
+        selected = choose_frames(
+            total,
+            diag,
+            args.samples,
+            args.stride,
+            include_frames + list(negative_frames),
+        )
     rows = []
     for frame_id in selected:
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
@@ -82,9 +99,9 @@ def main() -> int:
                 "y1": y1,
                 "x2": x2,
                 "y2": y2,
-                "review_status": "draft",
-                "visibility": "",
-                "occluded": "",
+                "review_status": "ok" if is_negative else args.default_review_status,
+                "visibility": "0" if is_negative else args.default_visibility,
+                "occluded": "0" if is_negative else args.default_occluded,
                 "label": "negative" if is_negative else "drone",
                 "notes": "",
             }

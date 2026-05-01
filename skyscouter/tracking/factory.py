@@ -24,6 +24,8 @@ def build_tracker(tracker_cfg: Dict[str, Any]) -> BaseTracker:
             max_primary_switches_per_second=float(
                 tracker_cfg.get("max_primary_switches_per_second", 1.0)
             ),
+            max_prediction_only_frames=int(tracker_cfg.get("max_prediction_only_frames", 6)),
+            min_prediction_confidence=float(tracker_cfg.get("min_prediction_confidence", 0.05)),
         )
 
     if backend in ("bytetrack", "sort", "simple"):

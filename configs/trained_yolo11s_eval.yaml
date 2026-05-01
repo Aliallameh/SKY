@@ -35,7 +35,7 @@ camera:
 # system can see but cannot promote to LOCKED.
 detector:
   backend: "yolo_ultralytics"
-  weights: "data/training/runs/detect/yolo11s_airborne_drone_vs_bird_v1/weights/best.pt"
+  weights: "data/models/yolo11s_airborne_drone_vs_bird_v1/best.pt"
   input_size: 1024
   confidence_threshold: 0.25
   iou_threshold: 0.45

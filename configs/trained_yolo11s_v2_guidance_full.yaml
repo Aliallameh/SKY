@@ -1,0 +1,133 @@
+# Full-video replay with the trained v2 airborne detector and visual guidance overlay.
+# This uses the checkpoint currently present in the Claude worktree.
+
+schema_version: "skyscout.config.v1"
+profile_name: "trained_yolo11s_airborne_v2_guidance_full"
+
+source:
+  type: "video_file"
+  frame_stride: 1
+  strict: true
+
+camera:
+  calibration_id: "BENCH_REPLAY_UNCALIBRATED_v1"
+  is_calibrated: false
+  intrinsics:
+    fx: null
+    fy: null
+    cx: null
+    cy: null
+    distortion: null
+  resolution_wh: null
+
+detector:
+  backend: "yolo_ultralytics"
+  weights: "data/models/yolo11s_airborne_drone_vs_bird_v2/best.pt"
+  input_size: 1024
+  confidence_threshold: 0.25
+  iou_threshold: 0.45
+  keep_class_ids: [0, 1, 2, 3]
+  fallback_keep_high_conf: false
+  fallback_high_conf_threshold: 0.35
+  device: "auto"
+  model_version: "yolo11s_airborne_drone_vs_bird_v2_e31_partial"
+
+tracker:
+  backend: "single_target_kalman_lk"
+  match_threshold: 0.3
+  center_match_threshold_px: 80
+  lk_min_points: 8
+  reacquisition_radius_px: 180
+  max_primary_switches_per_second: 1.0
+  track_buffer_frames: 30
+  max_prediction_only_frames: 1
+  min_prediction_confidence: 0.08
+  min_track_length: 3
+  ego_motion_compensation: false
+
+lock:
+  acceptable_lock_labels: ["drone", "uas", "airborne_candidate"]
+  acquired_to_tracking_frames: 3
+  tracking_to_locked_frames: 8
+  min_class_confidence: 0.30
+  min_lock_quality: 0.50
+  lost_to_aborted_seconds: 2.0
+  strike_ready:
+    min_locked_duration_seconds: 0.5
+    min_bbox_frame_fraction: 0.05
+    bbox_center_window: 0.5
+    max_cue_age_seconds: 5.0
+
+cue:
+  source: null
+  default_expiry_ms: 1500
+  default_position_sigma_m: 50.0
+
+range:
+  method: "none"
+  class_size_prior_m: {}
+
+guidance:
+  enabled: true
+  output_jsonl: true
+  camera:
+    mode: "fov"
+    horizontal_fov_deg: 70.0
+    vertical_fov_deg: null
+    frame_width_px: null
+    frame_height_px: null
+    fx_px: null
+    fy_px: null
+    cx_px: null
+    cy_px: null
+    assume_principal_point_center: true
+    calibration_reviewed: false
+  validity:
+    advisory_before_lock: false
+    allowed_lock_states: ["TRACKING", "LOCKED", "STRIKE_READY"]
+    acceptable_class_labels: null
+    min_confidence: 0.30
+    require_guidance_valid_target_state: true
+    max_stale_frames: 3
+  filtering:
+    enabled: true
+    ema_alpha: 0.35
+    prediction_enabled: true
+    lead_time_s: 0.20
+    max_prediction_px: 250
+    history_len: 8
+  controller:
+    enabled: true
+    mode: "yaw_p"
+    kp_yaw: 2.0
+    deadband_deg: 1.0
+    max_yaw_rate_deg_s: 45.0
+    max_delta_yaw_rate_deg_s: 20.0
+    pitch_command_enabled: false
+  overlay:
+    enabled: true
+    draw_optical_center: true
+    draw_target_center: true
+    draw_error_vector: true
+    draw_text: true
+    draw_bbox_geometry: true
+
+mock_bridge:
+  enabled: false
+  output_jsonl: true
+  require_reviewed_calibration: true
+  allowed_lock_states: ["LOCKED", "STRIKE_READY"]
+  require_guidance_hint_valid: true
+  max_abs_yaw_rate_deg_s: 45.0
+
+evaluation:
+  enabled: false
+  gt_path: null
+
+output:
+  save_annotated_video: true
+  save_target_states_jsonl: true
+  save_raw_detections: false
+  save_diagnostics_csv: true
+  save_manifest: true
+  annotated_video_fps: null

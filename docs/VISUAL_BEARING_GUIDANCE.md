@@ -1,5 +1,9 @@
 # Visual Bearing Guidance
 
+For the consolidated implementation narrative, plan, rationale, and test
+summary, see
+[`GUIDANCE_AND_MOCK_BRIDGE_IMPLEMENTATION.md`](GUIDANCE_AND_MOCK_BRIDGE_IMPLEMENTATION.md).
+
 Visual bearing guidance converts the tracked target bounding box into a
 camera-relative line-of-sight error and a bounded yaw-rate command proposal.
 It is a log-only bench/simulation artifact. The current implementation does

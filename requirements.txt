@@ -1,0 +1,24 @@
+# SkyScouter reproducible environment
+#
+# Fresh setup:
+#   python -m pip install --upgrade pip setuptools wheel
+#   python -m pip install -r requirements.txt
+#
+# The PyTorch extra index lets CUDA 12.8 wheels resolve on compatible NVIDIA
+# machines. CPU-only environments can still install the generic wheels.
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+numpy>=1.23,<3
+opencv-python>=4.7,<5
+PyYAML>=6.0,<7
+
+# Detector/training stack
+ultralytics>=8.4,<8.5
+torch>=2.7
+torchvision>=0.22
+
+# Development and regression checks
+pytest>=7.4
+
+# Install this repo as an editable package when using this requirements file.
+-e .

@@ -132,3 +132,100 @@ class TargetState:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+# ---------------- Visual bearing guidance hint ----------------
+
+@dataclass
+class GuidanceHint:
+    """
+    Log-only visual bearing/yaw-alignment proposal.
+
+    This schema is deliberately separate from TargetState. It is a deterministic
+    bench-replay artifact for review, simulation, and later human-reviewed
+    flight-controller integration. It is not an authoritative actuator command.
+    Positive bearing/yaw error means the target is right of the optical center.
+    Positive elevation error means the target is above the optical center.
+    """
+    schema_version: str = "skyscout.guidance_hint.v1"
+    frame_id: int = 0
+    timestamp_s: float = 0.0
+    timestamp_utc: str = ""
+    run_id: Optional[str] = None
+    track_id: Optional[int] = None
+    valid: bool = False
+    valid_for_logging: bool = False
+    valid_for_actuation: bool = False
+    reason: List[str] = field(default_factory=list)
+    source_lock_state: Optional[str] = None
+    guidance_valid_from_lock_state: bool = False
+    bbox_xyxy: Optional[List[float]] = None
+    target_center_px: Optional[List[float]] = None
+    predicted_target_center_px: Optional[List[float]] = None
+    frame_center_px: Optional[List[float]] = None
+    pixel_error_px: Optional[List[float]] = None
+    normalized_error: Optional[List[float]] = None
+    bearing_error_rad: Optional[float] = None
+    bearing_error_deg: Optional[float] = None
+    elevation_error_rad: Optional[float] = None
+    elevation_error_deg: Optional[float] = None
+    filtered_bearing_error_deg: Optional[float] = None
+    filtered_elevation_error_deg: Optional[float] = None
+    yaw_rate_cmd_deg_s: float = 0.0
+    pitch_rate_cmd_deg_s: Optional[float] = None
+    lead_time_s: float = 0.0
+    controller_mode: str = "disabled"
+    confidence: Optional[float] = None
+    notes: Optional[Dict[str, Any]] = None
+
+    def enforce_safety_invariants(self) -> None:
+        """
+        GuidanceHint never authorizes actuation. Invalid hints must also carry
+        zero command proposals.
+        """
+        self.valid_for_actuation = False
+        if not self.valid:
+            self.valid_for_logging = False
+            self.yaw_rate_cmd_deg_s = 0.0
+            self.pitch_rate_cmd_deg_s = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        self.enforce_safety_invariants()
+        return asdict(self)
+
+
+# ---------------- Mock guidance bridge proposal ----------------
+
+@dataclass
+class BridgeProposal:
+    """
+    Auditable mock bridge output derived from GuidanceHint.
+
+    This is a transport-neutral JSONL proposal for bench replay only. It is not
+    a MAVLink message, does not open a socket, and does not authorize actuation.
+    """
+    schema_version: str = "skyscout.mock_bridge_proposal.v1"
+    frame_id: int = 0
+    timestamp_s: float = 0.0
+    timestamp_utc: str = ""
+    run_id: Optional[str] = None
+    track_id: Optional[int] = None
+    source_guidance_schema_version: str = "skyscout.guidance_hint.v1"
+    source_lock_state: Optional[str] = None
+    calibration_id: str = ""
+    calibration_reviewed: bool = False
+    yaw_rate_cmd_deg_s: float = 0.0
+    pitch_rate_cmd_deg_s: Optional[float] = None
+    valid_for_transport: bool = False
+    reason: List[str] = field(default_factory=list)
+    source_guidance_valid: bool = False
+    source_guidance_reason: List[str] = field(default_factory=list)
+
+    def enforce_safety_invariants(self) -> None:
+        if not self.valid_for_transport:
+            self.yaw_rate_cmd_deg_s = 0.0
+            self.pitch_rate_cmd_deg_s = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        self.enforce_safety_invariants()
+        return asdict(self)

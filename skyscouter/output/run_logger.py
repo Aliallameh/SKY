@@ -41,6 +41,7 @@ class RunLogger:
             "ended_utc": None,
             "status": "running",
             "error": None,
+            "artifacts": {},
         }
 
         self._log_path = self._dir / "run.log"
@@ -88,6 +89,10 @@ class RunLogger:
 
     def set_video_path(self, path: Optional[str]) -> None:
         self._manifest["video_path"] = path
+
+    def set_artifact(self, name: str, path: Optional[str]) -> None:
+        self._manifest.setdefault("artifacts", {})
+        self._manifest["artifacts"][name] = path
 
     def increment_frame(self, n: int = 1) -> None:
         self._manifest["frame_count"] = int(self._manifest["frame_count"]) + n

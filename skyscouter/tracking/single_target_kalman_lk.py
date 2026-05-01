@@ -335,6 +335,23 @@ class SingleTargetKalmanLKTracker(BaseTracker):
 
         self._last_gray = gray
         if self._age_since_update > self._max_age:
+            # Track stale beyond the buffer. Don't keep dead-reckoning the
+            # Kalman state across the gap: with a constant-velocity model,
+            # the prediction drifts arbitrarily far from the drone's actual
+            # position once it reappears, and _associate() then rejects the
+            # fresh detector hit because it's outside the (predicted-)reacq
+            # radius. Clear internal state so the next update() takes the
+            # _choose_initial_detection() branch and re-acquires from the
+            # strongest available detection. This is the detector→track
+            # re-init pattern used by the Anti-UAV reference implementation.
+            self._x = None
+            self._P = None
+            self._track = None
+            self._track_id = None
+            self._hits = 0
+            self._age_since_update = 0
+            self._appearance = AppearanceModel()
+            self._flow = LKFlowPropagator(min_points=self._lk_min_points)
             return []
 
         tr = self._make_track(

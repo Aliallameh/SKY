@@ -49,32 +49,39 @@ Lock-state responsibility:
   reel + JPEGs of every positive frame the trained detector missed, with
   GT in green and YOLO low-confidence detections in yellow.
 
-**Latest corrected-GT replay (trained detector)**:
+**Latest corrected-GT replay (v2 detector + tracker stale-state fix)**:
 
-- Run: `data/outputs/run_trained_detector_eval/`
+- Run: `data/outputs/run_v2_eval_trackerfix/`
+- Config: `configs/trained_yolo11s_v2_eval.yaml`
+- Detector: `yolo11s_airborne_drone_vs_bird_v2` (epoch 31 / 80, partial)
 - GT file: corrected sparse GT (44 positive drone frames + 45 hard negatives)
 - Frames processed: 9,744
-- Matched positive rate: **0.705** (31/44)
-- Median IoU when matched: **0.81** (was 0.0)
-- Median center error: **1.57 px** (was 417 px)
-- False-lock negative frames: **0** (was 9)
-- Labeled track ID switches: **0**
-- Acceptance gate: ❌ (only `min_matched_positive_rate ≥ 0.90` is failing)
+- Matched positive rate: **0.977** (43/44)
+- Median IoU when matched: **0.78**
+- Median center error: **1.89 px**
+- False-lock negative frames: **0**
+- Labeled track ID switches: **2** (≤ 3 gate)
+- Acceptance gate: **✅ PASSES** (all 4 gates clear)
 
-For the per-frame breakdown see [`PHASE_1_RESULTS.md`](PHASE_1_RESULTS.md).
+For the full progression v1 → v2 → v2+tracker-fix and the per-frame
+breakdown see [`PHASE_1_RESULTS.md`](PHASE_1_RESULTS.md).
 
-**Detector vs tracker root-cause split** (from
-`scripts/extract_miss_highlights.py`):
+**Detector vs tracker root-cause split (historical, pre-fix)** — from
+`scripts/extract_miss_highlights.py` against the v1 detector:
 
-- Of 13 missed positive frames, only **1** (frame 405) is true detector
-  blindness. **6** had usable YOLO signal below the 0.25 confidence
-  threshold; **6** had YOLO signal above threshold (with IoU 0.7–0.9
-  versus GT) that the tracker did not propagate because it was in
-  `SEARCHING` after a prior gap.
+- Of 13 missed positive frames in the v1 conf=0.25 baseline, **1**
+  (frame 405) was true detector blindness, **6** had usable YOLO signal
+  below the 0.25 confidence threshold, and **6** had YOLO signal above
+  threshold with IoU 0.7–0.9 versus GT that the tracker did not propagate
+  because it was in `SEARCHING` after a prior gap.
 
-Interpretation: the trained detector is no longer the sole bottleneck.
-Tracker reacquisition behavior and confidence-threshold policy are now
-first-order concerns for the matched-positive-rate gate.
+The 6 below-threshold cases were fixed by v2's improved calibration
+(frames now sit at conf ≥ 0.25). The 6 tracker-miss cases were fixed by
+the stale-state reacquisition patch in
+`skyscouter/tracking/single_target_kalman_lk.py`. The single
+detector-blind case (frame 405) remains; it requires additional
+long-range training data (LRDDv2 or similar) — out of scope for the
+gate.
 
 ## Chosen Training Direction
 
@@ -203,23 +210,31 @@ Render a miss-frame diagnostic reel after an eval run:
 
 ## Next Engineering Steps
 
-1. **Cheap recall experiment**: rerun the trained-detector eval with
-   `detector.confidence_threshold: 0.10` (in
-   `configs/trained_yolo11s_eval.yaml`). The miss-frame diagnostic shows
-   six missed frames have YOLO IoU ≥ 0.7 against GT but conf below 0.25.
-2. **Tracker reacquisition audit**: six of the missed frames had a
-   ≥ 0.25-confidence detection co-located with the GT bbox, but the
-   tracker was already in SEARCHING. Review
-   `single_target_kalman_lk` reacquisition gates with the diagnostic
-   frames as the regression set.
-3. **Resume training to epoch 80**. The val curve was still climbing
-   when the run was interrupted; remaining epochs may close part of
-   the recall gap on small/long-range frames.
-4. Obtain LRDDv2 (or equivalent long-range drone) data and enable the
-   `lrddv2_long_range_drone` source in the manifest.
-5. Tighten lock semantics so `guidance_valid=true` requires semantic
+The original v1 next-step list has been resolved. v2 (AOD-4 + Anti-UAV300)
+plus a tracker stale-state reacquisition fix closes the acceptance gate on
+`my_drone_chase.MP4` at matched positive rate 0.977. Detail in
+[`PHASE_1_RESULTS.md`](PHASE_1_RESULTS.md).
+
+The remaining items below are forward-looking and not gate blockers:
+
+1. **Resume v2 training to epoch 80** *(low priority — gate already passes
+   at epoch 31).* Val curve was still climbing when the host rebooted.
+   Marginal mAP improvement expected; unlikely to recover the one
+   remaining detector-blind miss (frame 405) without more data.
+2. **Frame 405 coverage**: this frame is true detector blindness even at
+   conf ≥ 0.01. Recoverable only with additional long-range / small-pixel
+   drone training data. See item 4.
+3. **Obtain LRDDv2** (or equivalent long-range drone) data and enable the
+   `lrddv2_long_range_drone` source in the manifest. Targets the same
+   pixel-tiny regime as frame 405.
+4. **Tracker regression set**: capture the 6 previously-failing tracker
+   miss frames (6000, 6120, 6300, 6495, 6675, plus context) as a unit
+   test against any future tracker change.
+5. **Tighten lock semantics** so `guidance_valid=true` requires semantic
    drone confidence ≥ a calibrated threshold, not just label match.
-6. Confidence calibration on validation set (Brier/temperature scaling).
+6. **Confidence calibration** on validation set (Brier / temperature
+   scaling) — would tighten the link between detector confidence and
+   downstream lock-quality scoring.
 
 ## Acceptance Gate
 
@@ -230,5 +245,7 @@ Do not call the video acceptable until all are true:
 - labeled track ID switches ≤ 3;
 - false-lock negative frames = 0.
 
-Current trained-detector run: 1 of 4 gates failing
-(matched positive rate 0.705 < 0.90).
+**Current status (v2 + tracker fix on `my_drone_chase.MP4`): all 4 gates
+pass.** Matched positive rate 0.977, median center error 1.89 px, labeled
+track ID switches 2, false-lock negative frames 0. See
+[`PHASE_1_RESULTS.md`](PHASE_1_RESULTS.md) for the full breakdown.

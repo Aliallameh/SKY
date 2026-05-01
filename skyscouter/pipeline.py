@@ -21,12 +21,18 @@ import numpy as np
 from .io.frame_source import BaseFrameSource, Frame
 from .perception.base_detector import BaseDetector, Detection
 from .tracking.base_tracker import BaseTracker, Track
+from .bridge.factory import build_mock_guidance_bridge
+from .bridge.mock_guidance_bridge import MockGuidanceBridge
+from .guidance.bearing import GuidanceInput
+from .guidance.factory import build_guidance_computer
 from .lock.state_machine import LockStateMachine, StrikeReadyConfig
 from .output.lock_quality import compute_lock_quality
 from .schemas import (
-    TargetState, MessageType, LockState, RangeSource, FaultFlag,
+    GuidanceHint, TargetState, MessageType, LockState, RangeSource, FaultFlag,
 )
 from .output.target_state_writer import TargetStateJsonlWriter
+from .output.guidance_writer import GuidanceHintJsonlWriter
+from .output.bridge_writer import BridgeProposalJsonlWriter
 from .output.annotator import VideoAnnotator
 from .output.run_logger import RunLogger
 from .output.evaluation import DiagnosticsWriter, EvaluationCollector
@@ -41,6 +47,8 @@ class Pipeline:
         tracker: BaseTracker,
         run_logger: RunLogger,
         target_state_writer: Optional[TargetStateJsonlWriter] = None,
+        guidance_hint_writer: Optional[GuidanceHintJsonlWriter] = None,
+        bridge_proposal_writer: Optional[BridgeProposalJsonlWriter] = None,
         annotator: Optional[VideoAnnotator] = None,
         diagnostics_writer: Optional[DiagnosticsWriter] = None,
         evaluation_collector: Optional[EvaluationCollector] = None,
@@ -51,6 +59,8 @@ class Pipeline:
         self._tracker = tracker
         self._logger = run_logger
         self._writer = target_state_writer
+        self._guidance_writer = guidance_hint_writer
+        self._bridge_writer = bridge_proposal_writer
         self._annotator = annotator
         self._diagnostics = diagnostics_writer
         self._evaluation = evaluation_collector
@@ -80,6 +90,27 @@ class Pipeline:
 
         self._sensor_sources = ["EO_MONO"]  # configurable later
         self._model_version = detector.get_model_version()
+        guidance_cfg = config.get("guidance", {})
+        self._guidance_enabled = bool(guidance_cfg.get("enabled", False))
+        self._guidance = None
+        if self._guidance_enabled:
+            self._guidance = build_guidance_computer(
+                guidance_cfg,
+                run_id=run_logger.run_id,
+                acceptable_class_labels=self._acceptable_lock_labels,
+            )
+        mock_bridge_cfg = config.get("mock_bridge", {})
+        self._mock_bridge_enabled = bool(mock_bridge_cfg.get("enabled", False))
+        self._mock_bridge: Optional[MockGuidanceBridge] = None
+        if self._mock_bridge_enabled:
+            if not self._guidance_enabled:
+                raise ValueError("mock_bridge.enabled=true requires guidance.enabled=true")
+            self._mock_bridge = build_mock_guidance_bridge(
+                mock_bridge_cfg,
+                guidance_camera_cfg=guidance_cfg.get("camera", {}),
+                calibration_id=self._calibration_id,
+                run_id=run_logger.run_id,
+            )
 
     # ---- main loop ----
 
@@ -192,6 +223,12 @@ class Pipeline:
             if self._evaluation is not None:
                 self._evaluation.add(frame.frame_index, ts)
 
+            guidance_hint = self._build_guidance_hint(frame, primary, ts)
+            if self._guidance_writer is not None and guidance_hint is not None:
+                self._guidance_writer.write(guidance_hint)
+            if self._mock_bridge is not None and self._bridge_writer is not None:
+                self._bridge_writer.write(self._mock_bridge.consume(guidance_hint))
+
             # 6. Annotate video
             if self._annotator is not None:
                 annotated = self._annotator.annotate(
@@ -204,6 +241,7 @@ class Pipeline:
                     lock_quality=ts.lock_quality or 0.0,
                     latency_ms=latency_ms,
                     frame_index=frame.frame_index,
+                    guidance_hint=guidance_hint,
                 )
                 self._annotator.write(annotated)
 
@@ -341,6 +379,49 @@ class Pipeline:
         )
         ts.enforce_safety_invariants()
         return ts
+
+    def _build_guidance_hint(
+        self,
+        frame: Frame,
+        primary: Optional[Track],
+        target_state: TargetState,
+    ) -> Optional[GuidanceHint]:
+        if not self._guidance_enabled or self._guidance is None:
+            return None
+
+        bbox_xyxy = None
+        class_label = None
+        confidence = None
+        track_id = None
+        time_since_update = 0
+        center_history = None
+        if primary is not None:
+            d = primary.detection
+            bbox_xyxy = d.as_xyxy()
+            class_label = self._normalize_class_label(d.class_label)
+            confidence = d.confidence
+            track_id = primary.track_id
+            time_since_update = primary.time_since_update
+            center_history = list(primary.center_history)
+
+        return self._guidance.compute(
+            GuidanceInput(
+                frame_id=frame.frame_index,
+                timestamp_s=frame.capture_time_s,
+                timestamp_utc=frame.timestamp_utc,
+                frame_width=frame.width,
+                frame_height=frame.height,
+                bbox_xyxy=bbox_xyxy,
+                track_id=track_id,
+                class_label=class_label,
+                confidence=confidence,
+                lock_state=target_state.lock_state,
+                target_state_guidance_valid=target_state.guidance_valid,
+                fault_flags=list(target_state.fault_flags),
+                time_since_update_frames=time_since_update,
+                center_history=center_history,
+            )
+        )
 
     def _publish_fault(self, frame: Frame, flags: List[FaultFlag]) -> None:
         if self._writer is None:

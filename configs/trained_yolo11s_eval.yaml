@@ -80,6 +80,63 @@ range:
   method: "none"
   class_size_prior_m: {}
 
+guidance:
+  enabled: true
+  output_jsonl: true
+
+  camera:
+    mode: "fov"
+    horizontal_fov_deg: 70.0
+    vertical_fov_deg: null
+    frame_width_px: null
+    frame_height_px: null
+    fx_px: null
+    fy_px: null
+    cx_px: null
+    cy_px: null
+    assume_principal_point_center: true
+    calibration_reviewed: false
+
+  validity:
+    advisory_before_lock: false
+    allowed_lock_states: ["TRACKING", "LOCKED", "STRIKE_READY"]
+    acceptable_class_labels: null
+    min_confidence: 0.30
+    require_guidance_valid_target_state: true
+    max_stale_frames: 3
+
+  filtering:
+    enabled: true
+    ema_alpha: 0.35
+    prediction_enabled: true
+    lead_time_s: 0.20
+    max_prediction_px: 250
+    history_len: 8
+
+  controller:
+    enabled: true
+    mode: "yaw_p"
+    kp_yaw: 2.0
+    deadband_deg: 1.0
+    max_yaw_rate_deg_s: 45.0
+    max_delta_yaw_rate_deg_s: 20.0
+    pitch_command_enabled: false
+
+  overlay:
+    enabled: true
+    draw_optical_center: true
+    draw_target_center: true
+    draw_error_vector: true
+    draw_text: true
+
+mock_bridge:
+  enabled: false
+  output_jsonl: true
+  require_reviewed_calibration: true
+  allowed_lock_states: ["LOCKED", "STRIKE_READY"]
+  require_guidance_hint_valid: true
+  max_abs_yaw_rate_deg_s: 45.0
+
 evaluation:
   enabled: true
   gt_path: "C:/Users/Ali/Documents/Datasets/drone_sparse_gt_corrected.csv"

@@ -25,6 +25,8 @@ from skyscouter.perception.factory import build_detector
 from skyscouter.tracking.factory import build_tracker
 from skyscouter.output.run_logger import RunLogger
 from skyscouter.output.target_state_writer import TargetStateJsonlWriter
+from skyscouter.output.guidance_writer import GuidanceHintJsonlWriter
+from skyscouter.output.bridge_writer import BridgeProposalJsonlWriter
 from skyscouter.output.annotator import VideoAnnotator
 from skyscouter.output.evaluation import DiagnosticsWriter, EvaluationCollector
 from skyscouter.pipeline import Pipeline
@@ -39,6 +41,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output", required=True, help="Output directory for this run")
     p.add_argument("--run-id", default=None, help="Optional run identifier")
     p.add_argument("--gt", default=None, help="Optional sparse GT CSV override for evaluation")
+    p.add_argument("--guidance-enabled", action="store_true",
+                   help="Override config to enable visual bearing guidance hints")
+    p.add_argument("--no-guidance", action="store_true",
+                   help="Override config to disable visual bearing guidance hints")
+    p.add_argument("--camera-hfov-deg", type=float, default=None,
+                   help="Override guidance.camera.horizontal_fov_deg")
+    p.add_argument("--mock-bridge-enabled", action="store_true",
+                   help="Override config to enable mock GuidanceHint bridge JSONL output")
+    p.add_argument("--no-mock-bridge", action="store_true",
+                   help="Override config to disable mock GuidanceHint bridge output")
     return p.parse_args()
 
 
@@ -53,6 +65,27 @@ def main() -> int:
             cfg.setdefault("evaluation", {})
             cfg["evaluation"]["enabled"] = True
             cfg["evaluation"]["gt_path"] = args.gt
+        if args.guidance_enabled and args.no_guidance:
+            raise ValueError("Use only one of --guidance-enabled or --no-guidance")
+        if args.guidance_enabled:
+            cfg.setdefault("guidance", {})
+            cfg["guidance"]["enabled"] = True
+        if args.no_guidance:
+            cfg.setdefault("guidance", {})
+            cfg["guidance"]["enabled"] = False
+        if args.camera_hfov_deg is not None:
+            cfg.setdefault("guidance", {}).setdefault("camera", {})
+            cfg["guidance"]["camera"]["horizontal_fov_deg"] = args.camera_hfov_deg
+        if args.mock_bridge_enabled and args.no_mock_bridge:
+            raise ValueError("Use only one of --mock-bridge-enabled or --no-mock-bridge")
+        if args.mock_bridge_enabled:
+            cfg.setdefault("mock_bridge", {})
+            cfg["mock_bridge"]["enabled"] = True
+        if args.no_mock_bridge:
+            cfg.setdefault("mock_bridge", {})
+            cfg["mock_bridge"]["enabled"] = False
+        if cfg.get("mock_bridge", {}).get("enabled", False) and not cfg.get("guidance", {}).get("enabled", False):
+            raise ValueError("mock_bridge.enabled=true requires guidance.enabled=true")
         logger.set_config(cfg)
         logger.set_video_path(args.video)
         logger.info(f"Loaded config: {args.config}")
@@ -80,11 +113,25 @@ def main() -> int:
         out_cfg = cfg.get("output", {})
         annot_fps = out_cfg.get("annotated_video_fps") or fps
         annotator = (
-            VideoAnnotator(str(annotated_path), w, h, fps=annot_fps)
+            VideoAnnotator(
+                str(annotated_path),
+                w,
+                h,
+                fps=annot_fps,
+                guidance_overlay_cfg=cfg.get("guidance", {}).get("overlay", {"enabled": False}),
+            )
             if out_cfg.get("save_annotated_video", True) else None
         )
         writer_ctx = TargetStateJsonlWriter(str(jsonl_path)) \
             if out_cfg.get("save_target_states_jsonl", True) else None
+        guidance_cfg = cfg.get("guidance", {})
+        guidance_path = out_dir / "guidance_hints.jsonl"
+        guidance_writer_ctx = GuidanceHintJsonlWriter(str(guidance_path)) \
+            if guidance_cfg.get("enabled", False) and guidance_cfg.get("output_jsonl", True) else None
+        bridge_cfg = cfg.get("mock_bridge", {})
+        bridge_path = out_dir / "mock_bridge_proposals.jsonl"
+        bridge_writer_ctx = BridgeProposalJsonlWriter(str(bridge_path)) \
+            if bridge_cfg.get("enabled", False) and bridge_cfg.get("output_jsonl", True) else None
         diagnostics = DiagnosticsWriter(str(diagnostics_path)) \
             if out_cfg.get("save_diagnostics_csv", True) else None
         eval_cfg = cfg.get("evaluation", {})
@@ -94,6 +141,12 @@ def main() -> int:
         try:
             if writer_ctx is not None:
                 writer_ctx.__enter__()
+            if guidance_writer_ctx is not None:
+                guidance_writer_ctx.__enter__()
+                logger.set_artifact("guidance_hints_jsonl", str(guidance_path))
+            if bridge_writer_ctx is not None:
+                bridge_writer_ctx.__enter__()
+                logger.set_artifact("mock_bridge_proposals_jsonl", str(bridge_path))
 
             pipeline = Pipeline(
                 config=cfg,
@@ -102,6 +155,8 @@ def main() -> int:
                 tracker=tracker,
                 run_logger=logger,
                 target_state_writer=writer_ctx,
+                guidance_hint_writer=guidance_writer_ctx,
+                bridge_proposal_writer=bridge_writer_ctx,
                 annotator=annotator,
                 diagnostics_writer=diagnostics,
                 evaluation_collector=evaluator,
@@ -110,6 +165,10 @@ def main() -> int:
         finally:
             if writer_ctx is not None:
                 writer_ctx.__exit__(None, None, None)
+            if guidance_writer_ctx is not None:
+                guidance_writer_ctx.__exit__(None, None, None)
+            if bridge_writer_ctx is not None:
+                bridge_writer_ctx.__exit__(None, None, None)
             if annotator is not None:
                 annotator.close()
             if diagnostics is not None:

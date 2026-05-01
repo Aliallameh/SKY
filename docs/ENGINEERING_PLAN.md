@@ -78,6 +78,14 @@ Exactly the PRD G3 deliverable, minus live cue (cue is simulated for now).
 - [ ] T1.5: Cue adapter + cue simulator (PRD FR-CUE-005)
 - [ ] T1.6: Kinematic feature extractor on tracks (PRD FR-DISC-001)
 - [ ] T1.7: Confidence calibration (FR-DET-002)
+- [x] T1.8: Visual bearing guidance from tracked bbox:
+  camera-relative bearing/elevation error, EMA filtering, conservative
+  center prediction, bounded yaw-rate proposal, JSONL artifact, and optional
+  overlay. Log/simulation only; no MAVLink or actuation path.
+- [x] T1.9: Mock guidance bridge:
+  in-pipeline `GuidanceHint` consumer that writes transport-neutral JSONL
+  proposal/suppression rows behind reviewed-calibration, lock-state, guidance,
+  fault, and yaw-limit gates. No MAVLink or network transport.
 
 ### Sprint 2 — Edge readiness
 - T2.1: TensorRT export path
@@ -120,6 +128,13 @@ These are committed; see PRD v3.2 §21.
   committed in config.
 - **Ego-motion compensation returns identity.** Wired to a real IMU later.
 - **No GPU required to run.** Everything works on CPU; just slower.
+- **Visual bearing guidance is log-only.** It computes line-of-sight angular
+  error and yaw-rate proposals from tracked bbox center, but does not estimate
+  range, command a vehicle, send MAVLink, or bypass `TargetState.guidance_valid`
+  safety gates.
+- **Mock bridge is audit-only.** It can mark rows `valid_for_transport` for
+  simulator review only after calibration is explicitly reviewed; it still does
+  not actuate a vehicle or publish MAVLink.
 
 ## What "no cheating" means in this codebase
 

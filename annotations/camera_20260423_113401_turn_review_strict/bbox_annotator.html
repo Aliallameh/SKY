@@ -1,0 +1,2807 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Skyscouter Drone BBox Review</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #f4f6f8; color: #111; }
+    header { position: sticky; top: 0; z-index: 5; background: #fff; border-bottom: 1px solid #cdd4dc; padding: 14px 22px; box-shadow: 0 2px 12px rgba(0,0,0,0.05); }
+    h1 { margin: 0 0 6px; font-size: 22px; }
+    p { margin: 4px 0; line-height: 1.35; }
+    code { background: #eef2f6; padding: 1px 4px; border-radius: 4px; }
+    main { margin: 18px 22px 40px; }
+    button { border-radius: 6px; border: 1px solid #222; padding: 8px 12px; background: #111; color: white; cursor: pointer; }
+    button.secondary { background: #fff; color: #111; border-color: #8c98a4; }
+    button.warn { background: #7a1f1f; border-color: #7a1f1f; }
+    input, select { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #aeb7c1; border-radius: 5px; background: #fff; }
+    input[readonly] { background: #eef1f4; color: #222; }
+    .guide { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin: 10px 0; font-size: 13px; }
+    .guide div { background: #f7f9fb; border: 1px solid #d7dee6; border-radius: 6px; padding: 8px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+    .toolbar label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+    .stats { font-size: 13px; color: #39434d; }
+    .warn-text { color: #8a3000; font-weight: 700; }
+    .card { background: #fff; border: 1px solid #cfd6de; border-radius: 8px; padding: 14px; margin: 14px 0; }
+    .card[data-status="ok"] { border-left: 5px solid #187a3b; }
+    .card[data-status="skip"] { border-left: 5px solid #777; opacity: 0.82; }
+    .card[data-label="negative"] { border-left: 5px solid #9b1c1c; }
+    .card-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .card-title h2 { margin: 0 0 8px; font-size: 18px; }
+    .pill { border: 1px solid #aab4be; border-radius: 999px; padding: 4px 8px; color: #303942; font-size: 12px; white-space: nowrap; }
+    .images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    figure { margin: 0; }
+    figcaption { font-size: 13px; font-weight: 700; margin: 0 0 6px; color: #29313a; }
+    img { width: 100%; height: auto; display: block; border: 1px solid #8e9aa6; background: #d6dbe0; }
+    .canvas-wrap { position: relative; }
+    .canvas-wrap img { position: relative; z-index: 1; }
+    .canvas-wrap canvas { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 12px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .hidden { display: none; }
+    @media (max-width: 900px) { .images { grid-template-columns: 1fr; } main { margin: 12px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Skyscouter Drone BBox Review</h1>
+    <p>Draw or correct the box around the <strong>drone</strong> on the clean frame. The draft frame is only a starting point and may be wrong.</p>
+    <p class="warn-text">Rows marked <code>draft</code> are ignored by evaluation. Mark usable drone boxes as <code>ok</code>; mark ambiguous rows as <code>skip</code>; use <code>negative</code> only when there is no drone target in the frame.</p>
+    <div class="guide">
+      <div><strong>How to correct:</strong> drag a new box on either image. The left clean image and the right draft image both update the same x/y values.</div>
+      <div><strong>OK Drone:</strong> use when the box tightly encloses the visible drone and you are confident.</div>
+      <div><strong>Occluded OK:</strong> use when the drone is partly hidden or cropped but you can still box the visible/inferable drone.</div>
+      <div><strong>Negative:</strong> use only if this frame has no drone target or is a hard false-positive frame. It clears the box.</div>
+      <div><strong>Skip:</strong> use when you cannot confidently label the frame. Skipped rows are ignored.</div>
+    </div>
+    <div class="toolbar">
+      <button onclick="downloadCsv()">Download corrected CSV</button>
+      <button class="secondary" onclick="markVisibleDraftsOk()">Mark visible drafts OK</button>
+      <button class="secondary" onclick="showAll()">Show all</button>
+      <button class="secondary" onclick="showOnlyDrafts()">Show drafts</button>
+      <button class="secondary" onclick="showOnlyProblems()">Show skip/negative</button>
+      <label>Jump frame <input id="jumpFrame" type="number" min="0" style="width: 90px"></label>
+      <button class="secondary" onclick="jumpToFrame()">Go</button>
+      <span id="stats" class="stats"></span>
+    </div>
+  </header>
+  <main>
+
+    <section class="card" data-frame="80">
+      <div class="card-title">
+        <h2>Frame 80</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00080.jpg" alt="clean frame 80">
+            <canvas data-frame="80"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00080_draft.jpg" alt="draft frame 80" onerror="this.src='frames/frame_00080.jpg'">
+            <canvas data-frame="80" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="594.19" data-field="x1" readonly></label>
+        <label>y1 <input value="378.93" data-field="y1" readonly></label>
+        <label>x2 <input value="620.28" data-field="x2" readonly></label>
+        <label>y2 <input value="397.27" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="81">
+      <div class="card-title">
+        <h2>Frame 81</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00081.jpg" alt="clean frame 81">
+            <canvas data-frame="81"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00081_draft.jpg" alt="draft frame 81" onerror="this.src='frames/frame_00081.jpg'">
+            <canvas data-frame="81" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="575.48" data-field="x1" readonly></label>
+        <label>y1 <input value="384.77" data-field="y1" readonly></label>
+        <label>x2 <input value="600.80" data-field="x2" readonly></label>
+        <label>y2 <input value="402.58" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="82">
+      <div class="card-title">
+        <h2>Frame 82</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00082.jpg" alt="clean frame 82">
+            <canvas data-frame="82"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00082_draft.jpg" alt="draft frame 82" onerror="this.src='frames/frame_00082.jpg'">
+            <canvas data-frame="82" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="558.95" data-field="x1" readonly></label>
+        <label>y1 <input value="388.58" data-field="y1" readonly></label>
+        <label>x2 <input value="583.67" data-field="x2" readonly></label>
+        <label>y2 <input value="406.91" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="83">
+      <div class="card-title">
+        <h2>Frame 83</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00083.jpg" alt="clean frame 83">
+            <canvas data-frame="83"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00083_draft.jpg" alt="draft frame 83" onerror="this.src='frames/frame_00083.jpg'">
+            <canvas data-frame="83" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="541.06" data-field="x1" readonly></label>
+        <label>y1 <input value="391.72" data-field="y1" readonly></label>
+        <label>x2 <input value="566.00" data-field="x2" readonly></label>
+        <label>y2 <input value="410.45" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="84">
+      <div class="card-title">
+        <h2>Frame 84</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00084.jpg" alt="clean frame 84">
+            <canvas data-frame="84"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00084_draft.jpg" alt="draft frame 84" onerror="this.src='frames/frame_00084.jpg'">
+            <canvas data-frame="84" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="524.71" data-field="x1" readonly></label>
+        <label>y1 <input value="395.55" data-field="y1" readonly></label>
+        <label>x2 <input value="549.68" data-field="x2" readonly></label>
+        <label>y2 <input value="414.42" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="85">
+      <div class="card-title">
+        <h2>Frame 85</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00085.jpg" alt="clean frame 85">
+            <canvas data-frame="85"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00085_draft.jpg" alt="draft frame 85" onerror="this.src='frames/frame_00085.jpg'">
+            <canvas data-frame="85" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="508.36" data-field="x1" readonly></label>
+        <label>y1 <input value="399.38" data-field="y1" readonly></label>
+        <label>x2 <input value="533.37" data-field="x2" readonly></label>
+        <label>y2 <input value="418.39" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="86">
+      <div class="card-title">
+        <h2>Frame 86</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00086.jpg" alt="clean frame 86">
+            <canvas data-frame="86"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00086_draft.jpg" alt="draft frame 86" onerror="this.src='frames/frame_00086.jpg'">
+            <canvas data-frame="86" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="492.01" data-field="x1" readonly></label>
+        <label>y1 <input value="403.21" data-field="y1" readonly></label>
+        <label>x2 <input value="517.05" data-field="x2" readonly></label>
+        <label>y2 <input value="422.36" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="87">
+      <div class="card-title">
+        <h2>Frame 87</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00087.jpg" alt="clean frame 87">
+            <canvas data-frame="87"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00087_draft.jpg" alt="draft frame 87" onerror="this.src='frames/frame_00087.jpg'">
+            <canvas data-frame="87" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="475.66" data-field="x1" readonly></label>
+        <label>y1 <input value="407.04" data-field="y1" readonly></label>
+        <label>x2 <input value="500.74" data-field="x2" readonly></label>
+        <label>y2 <input value="426.33" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="88">
+      <div class="card-title">
+        <h2>Frame 88</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00088.jpg" alt="clean frame 88">
+            <canvas data-frame="88"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00088_draft.jpg" alt="draft frame 88" onerror="this.src='frames/frame_00088.jpg'">
+            <canvas data-frame="88" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="459.31" data-field="x1" readonly></label>
+        <label>y1 <input value="410.88" data-field="y1" readonly></label>
+        <label>x2 <input value="484.42" data-field="x2" readonly></label>
+        <label>y2 <input value="430.30" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="89">
+      <div class="card-title">
+        <h2>Frame 89</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00089.jpg" alt="clean frame 89">
+            <canvas data-frame="89"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00089_draft.jpg" alt="draft frame 89" onerror="this.src='frames/frame_00089.jpg'">
+            <canvas data-frame="89" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="437.03" data-field="x1" readonly></label>
+        <label>y1 <input value="422.67" data-field="y1" readonly></label>
+        <label>x2 <input value="461.19" data-field="x2" readonly></label>
+        <label>y2 <input value="438.30" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="90">
+      <div class="card-title">
+        <h2>Frame 90</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00090.jpg" alt="clean frame 90">
+            <canvas data-frame="90"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00090_draft.jpg" alt="draft frame 90" onerror="this.src='frames/frame_00090.jpg'">
+            <canvas data-frame="90" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="420.41" data-field="x1" readonly></label>
+        <label>y1 <input value="427.98" data-field="y1" readonly></label>
+        <label>x2 <input value="443.78" data-field="x2" readonly></label>
+        <label>y2 <input value="443.34" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="91">
+      <div class="card-title">
+        <h2>Frame 91</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00091.jpg" alt="clean frame 91">
+            <canvas data-frame="91"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00091_draft.jpg" alt="draft frame 91" onerror="this.src='frames/frame_00091.jpg'">
+            <canvas data-frame="91" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="405.61" data-field="x1" readonly></label>
+        <label>y1 <input value="433.35" data-field="y1" readonly></label>
+        <label>x2 <input value="428.12" data-field="x2" readonly></label>
+        <label>y2 <input value="447.72" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="92">
+      <div class="card-title">
+        <h2>Frame 92</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00092.jpg" alt="clean frame 92">
+            <canvas data-frame="92"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00092_draft.jpg" alt="draft frame 92" onerror="this.src='frames/frame_00092.jpg'">
+            <canvas data-frame="92" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="394.05" data-field="x1" readonly></label>
+        <label>y1 <input value="438.53" data-field="y1" readonly></label>
+        <label>x2 <input value="414.43" data-field="x2" readonly></label>
+        <label>y2 <input value="452.52" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="93">
+      <div class="card-title">
+        <h2>Frame 93</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00093.jpg" alt="clean frame 93">
+            <canvas data-frame="93"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00093_draft.jpg" alt="draft frame 93" onerror="this.src='frames/frame_00093.jpg'">
+            <canvas data-frame="93" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="379.41" data-field="x1" readonly></label>
+        <label>y1 <input value="443.78" data-field="y1" readonly></label>
+        <label>x2 <input value="398.80" data-field="x2" readonly></label>
+        <label>y2 <input value="457.23" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="94">
+      <div class="card-title">
+        <h2>Frame 94</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00094.jpg" alt="clean frame 94">
+            <canvas data-frame="94"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00094_draft.jpg" alt="draft frame 94" onerror="this.src='frames/frame_00094.jpg'">
+            <canvas data-frame="94" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="377.32" data-field="x1" readonly></label>
+        <label>y1 <input value="444.54" data-field="y1" readonly></label>
+        <label>x2 <input value="394.30" data-field="x2" readonly></label>
+        <label>y2 <input value="458.13" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="95">
+      <div class="card-title">
+        <h2>Frame 95</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00095.jpg" alt="clean frame 95">
+            <canvas data-frame="95"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00095_draft.jpg" alt="draft frame 95" onerror="this.src='frames/frame_00095.jpg'">
+            <canvas data-frame="95" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="366.53" data-field="x1" readonly></label>
+        <label>y1 <input value="448.41" data-field="y1" readonly></label>
+        <label>x2 <input value="382.12" data-field="x2" readonly></label>
+        <label>y2 <input value="461.66" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="96">
+      <div class="card-title">
+        <h2>Frame 96</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00096.jpg" alt="clean frame 96">
+            <canvas data-frame="96"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00096_draft.jpg" alt="draft frame 96" onerror="this.src='frames/frame_00096.jpg'">
+            <canvas data-frame="96" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="355.74" data-field="x1" readonly></label>
+        <label>y1 <input value="452.28" data-field="y1" readonly></label>
+        <label>x2 <input value="369.94" data-field="x2" readonly></label>
+        <label>y2 <input value="465.19" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="97">
+      <div class="card-title">
+        <h2>Frame 97</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00097.jpg" alt="clean frame 97">
+            <canvas data-frame="97"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00097_draft.jpg" alt="draft frame 97" onerror="this.src='frames/frame_00097.jpg'">
+            <canvas data-frame="97" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="344.95" data-field="x1" readonly></label>
+        <label>y1 <input value="456.16" data-field="y1" readonly></label>
+        <label>x2 <input value="357.76" data-field="x2" readonly></label>
+        <label>y2 <input value="468.72" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="98">
+      <div class="card-title">
+        <h2>Frame 98</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00098.jpg" alt="clean frame 98">
+            <canvas data-frame="98"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00098_draft.jpg" alt="draft frame 98" onerror="this.src='frames/frame_00098.jpg'">
+            <canvas data-frame="98" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="334.16" data-field="x1" readonly></label>
+        <label>y1 <input value="460.03" data-field="y1" readonly></label>
+        <label>x2 <input value="345.59" data-field="x2" readonly></label>
+        <label>y2 <input value="472.24" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="99">
+      <div class="card-title">
+        <h2>Frame 99</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00099.jpg" alt="clean frame 99">
+            <canvas data-frame="99"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00099_draft.jpg" alt="draft frame 99" onerror="this.src='frames/frame_00099.jpg'">
+            <canvas data-frame="99" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="323.37" data-field="x1" readonly></label>
+        <label>y1 <input value="463.91" data-field="y1" readonly></label>
+        <label>x2 <input value="333.41" data-field="x2" readonly></label>
+        <label>y2 <input value="475.77" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="100">
+      <div class="card-title">
+        <h2>Frame 100</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00100.jpg" alt="clean frame 100">
+            <canvas data-frame="100"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00100_draft.jpg" alt="draft frame 100" onerror="this.src='frames/frame_00100.jpg'">
+            <canvas data-frame="100" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="312.58" data-field="x1" readonly></label>
+        <label>y1 <input value="467.78" data-field="y1" readonly></label>
+        <label>x2 <input value="321.23" data-field="x2" readonly></label>
+        <label>y2 <input value="479.30" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="101">
+      <div class="card-title">
+        <h2>Frame 101</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00101.jpg" alt="clean frame 101">
+            <canvas data-frame="101"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00101_draft.jpg" alt="draft frame 101" onerror="this.src='frames/frame_00101.jpg'">
+            <canvas data-frame="101" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="301.79" data-field="x1" readonly></label>
+        <label>y1 <input value="471.66" data-field="y1" readonly></label>
+        <label>x2 <input value="309.05" data-field="x2" readonly></label>
+        <label>y2 <input value="482.82" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="102">
+      <div class="card-title">
+        <h2>Frame 102</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00102.jpg" alt="clean frame 102">
+            <canvas data-frame="102"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00102_draft.jpg" alt="draft frame 102" onerror="this.src='frames/frame_00102.jpg'">
+            <canvas data-frame="102" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="291.00" data-field="x1" readonly></label>
+        <label>y1 <input value="475.53" data-field="y1" readonly></label>
+        <label>x2 <input value="296.87" data-field="x2" readonly></label>
+        <label>y2 <input value="486.35" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="103">
+      <div class="card-title">
+        <h2>Frame 103</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00103.jpg" alt="clean frame 103">
+            <canvas data-frame="103"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00103_draft.jpg" alt="draft frame 103" onerror="this.src='frames/frame_00103.jpg'">
+            <canvas data-frame="103" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="280.21" data-field="x1" readonly></label>
+        <label>y1 <input value="479.40" data-field="y1" readonly></label>
+        <label>x2 <input value="284.69" data-field="x2" readonly></label>
+        <label>y2 <input value="489.88" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="104">
+      <div class="card-title">
+        <h2>Frame 104</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00104.jpg" alt="clean frame 104">
+            <canvas data-frame="104"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00104_draft.jpg" alt="draft frame 104" onerror="this.src='frames/frame_00104.jpg'">
+            <canvas data-frame="104" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="268.96" data-field="x1" readonly></label>
+        <label>y1 <input value="483.28" data-field="y1" readonly></label>
+        <label>x2 <input value="272.96" data-field="x2" readonly></label>
+        <label>y2 <input value="493.40" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="105">
+      <div class="card-title">
+        <h2>Frame 105</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00105.jpg" alt="clean frame 105">
+            <canvas data-frame="105"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00105_draft.jpg" alt="draft frame 105" onerror="this.src='frames/frame_00105.jpg'">
+            <canvas data-frame="105" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="257.48" data-field="x1" readonly></label>
+        <label>y1 <input value="487.15" data-field="y1" readonly></label>
+        <label>x2 <input value="261.48" data-field="x2" readonly></label>
+        <label>y2 <input value="496.93" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="106">
+      <div class="card-title">
+        <h2>Frame 106</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00106.jpg" alt="clean frame 106">
+            <canvas data-frame="106"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00106_draft.jpg" alt="draft frame 106" onerror="this.src='frames/frame_00106.jpg'">
+            <canvas data-frame="106" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="245.99" data-field="x1" readonly></label>
+        <label>y1 <input value="491.03" data-field="y1" readonly></label>
+        <label>x2 <input value="249.99" data-field="x2" readonly></label>
+        <label>y2 <input value="500.46" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="107">
+      <div class="card-title">
+        <h2>Frame 107</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00107.jpg" alt="clean frame 107">
+            <canvas data-frame="107"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00107_draft.jpg" alt="draft frame 107" onerror="this.src='frames/frame_00107.jpg'">
+            <canvas data-frame="107" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="234.51" data-field="x1" readonly></label>
+        <label>y1 <input value="494.90" data-field="y1" readonly></label>
+        <label>x2 <input value="238.51" data-field="x2" readonly></label>
+        <label>y2 <input value="503.98" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="108">
+      <div class="card-title">
+        <h2>Frame 108</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00108.jpg" alt="clean frame 108">
+            <canvas data-frame="108"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00108_draft.jpg" alt="draft frame 108" onerror="this.src='frames/frame_00108.jpg'">
+            <canvas data-frame="108" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="223.02" data-field="x1" readonly></label>
+        <label>y1 <input value="498.78" data-field="y1" readonly></label>
+        <label>x2 <input value="227.02" data-field="x2" readonly></label>
+        <label>y2 <input value="507.51" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="109">
+      <div class="card-title">
+        <h2>Frame 109</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00109.jpg" alt="clean frame 109">
+            <canvas data-frame="109"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00109_draft.jpg" alt="draft frame 109" onerror="this.src='frames/frame_00109.jpg'">
+            <canvas data-frame="109" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="211.54" data-field="x1" readonly></label>
+        <label>y1 <input value="502.65" data-field="y1" readonly></label>
+        <label>x2 <input value="215.54" data-field="x2" readonly></label>
+        <label>y2 <input value="511.04" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="110">
+      <div class="card-title">
+        <h2>Frame 110</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00110.jpg" alt="clean frame 110">
+            <canvas data-frame="110"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00110_draft.jpg" alt="draft frame 110" onerror="this.src='frames/frame_00110.jpg'">
+            <canvas data-frame="110" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="200.05" data-field="x1" readonly></label>
+        <label>y1 <input value="506.53" data-field="y1" readonly></label>
+        <label>x2 <input value="204.05" data-field="x2" readonly></label>
+        <label>y2 <input value="514.56" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="111">
+      <div class="card-title">
+        <h2>Frame 111</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00111.jpg" alt="clean frame 111">
+            <canvas data-frame="111"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00111_draft.jpg" alt="draft frame 111" onerror="this.src='frames/frame_00111.jpg'">
+            <canvas data-frame="111" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="188.57" data-field="x1" readonly></label>
+        <label>y1 <input value="510.40" data-field="y1" readonly></label>
+        <label>x2 <input value="192.57" data-field="x2" readonly></label>
+        <label>y2 <input value="518.09" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="112">
+      <div class="card-title">
+        <h2>Frame 112</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00112.jpg" alt="clean frame 112">
+            <canvas data-frame="112"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00112_draft.jpg" alt="draft frame 112" onerror="this.src='frames/frame_00112.jpg'">
+            <canvas data-frame="112" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="177.09" data-field="x1" readonly></label>
+        <label>y1 <input value="514.27" data-field="y1" readonly></label>
+        <label>x2 <input value="181.09" data-field="x2" readonly></label>
+        <label>y2 <input value="521.62" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="113">
+      <div class="card-title">
+        <h2>Frame 113</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00113.jpg" alt="clean frame 113">
+            <canvas data-frame="113"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00113_draft.jpg" alt="draft frame 113" onerror="this.src='frames/frame_00113.jpg'">
+            <canvas data-frame="113" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="165.60" data-field="x1" readonly></label>
+        <label>y1 <input value="518.15" data-field="y1" readonly></label>
+        <label>x2 <input value="169.60" data-field="x2" readonly></label>
+        <label>y2 <input value="525.14" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="114">
+      <div class="card-title">
+        <h2>Frame 114</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00114.jpg" alt="clean frame 114">
+            <canvas data-frame="114"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00114_draft.jpg" alt="draft frame 114" onerror="this.src='frames/frame_00114.jpg'">
+            <canvas data-frame="114" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="154.12" data-field="x1" readonly></label>
+        <label>y1 <input value="522.02" data-field="y1" readonly></label>
+        <label>x2 <input value="158.12" data-field="x2" readonly></label>
+        <label>y2 <input value="528.67" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="115">
+      <div class="card-title">
+        <h2>Frame 115</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00115.jpg" alt="clean frame 115">
+            <canvas data-frame="115"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00115_draft.jpg" alt="draft frame 115" onerror="this.src='frames/frame_00115.jpg'">
+            <canvas data-frame="115" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="142.63" data-field="x1" readonly></label>
+        <label>y1 <input value="525.90" data-field="y1" readonly></label>
+        <label>x2 <input value="146.63" data-field="x2" readonly></label>
+        <label>y2 <input value="532.20" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="116">
+      <div class="card-title">
+        <h2>Frame 116</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00116.jpg" alt="clean frame 116">
+            <canvas data-frame="116"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00116_draft.jpg" alt="draft frame 116" onerror="this.src='frames/frame_00116.jpg'">
+            <canvas data-frame="116" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="131.15" data-field="x1" readonly></label>
+        <label>y1 <input value="529.77" data-field="y1" readonly></label>
+        <label>x2 <input value="135.15" data-field="x2" readonly></label>
+        <label>y2 <input value="535.72" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="117">
+      <div class="card-title">
+        <h2>Frame 117</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00117.jpg" alt="clean frame 117">
+            <canvas data-frame="117"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00117_draft.jpg" alt="draft frame 117" onerror="this.src='frames/frame_00117.jpg'">
+            <canvas data-frame="117" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="119.66" data-field="x1" readonly></label>
+        <label>y1 <input value="533.65" data-field="y1" readonly></label>
+        <label>x2 <input value="123.66" data-field="x2" readonly></label>
+        <label>y2 <input value="539.25" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="118">
+      <div class="card-title">
+        <h2>Frame 118</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00118.jpg" alt="clean frame 118">
+            <canvas data-frame="118"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00118_draft.jpg" alt="draft frame 118" onerror="this.src='frames/frame_00118.jpg'">
+            <canvas data-frame="118" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="108.18" data-field="x1" readonly></label>
+        <label>y1 <input value="537.52" data-field="y1" readonly></label>
+        <label>x2 <input value="112.18" data-field="x2" readonly></label>
+        <label>y2 <input value="542.78" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="119">
+      <div class="card-title">
+        <h2>Frame 119</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00119.jpg" alt="clean frame 119">
+            <canvas data-frame="119"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00119_draft.jpg" alt="draft frame 119" onerror="this.src='frames/frame_00119.jpg'">
+            <canvas data-frame="119" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="96.69" data-field="x1" readonly></label>
+        <label>y1 <input value="541.39" data-field="y1" readonly></label>
+        <label>x2 <input value="100.69" data-field="x2" readonly></label>
+        <label>y2 <input value="546.30" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="120">
+      <div class="card-title">
+        <h2>Frame 120</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00120.jpg" alt="clean frame 120">
+            <canvas data-frame="120"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00120_draft.jpg" alt="draft frame 120" onerror="this.src='frames/frame_00120.jpg'">
+            <canvas data-frame="120" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="85.21" data-field="x1" readonly></label>
+        <label>y1 <input value="545.27" data-field="y1" readonly></label>
+        <label>x2 <input value="89.21" data-field="x2" readonly></label>
+        <label>y2 <input value="549.83" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="121">
+      <div class="card-title">
+        <h2>Frame 121</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00121.jpg" alt="clean frame 121">
+            <canvas data-frame="121"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00121_draft.jpg" alt="draft frame 121" onerror="this.src='frames/frame_00121.jpg'">
+            <canvas data-frame="121" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="73.72" data-field="x1" readonly></label>
+        <label>y1 <input value="549.14" data-field="y1" readonly></label>
+        <label>x2 <input value="77.72" data-field="x2" readonly></label>
+        <label>y2 <input value="553.36" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="122">
+      <div class="card-title">
+        <h2>Frame 122</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00122.jpg" alt="clean frame 122">
+            <canvas data-frame="122"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00122_draft.jpg" alt="draft frame 122" onerror="this.src='frames/frame_00122.jpg'">
+            <canvas data-frame="122" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="62.24" data-field="x1" readonly></label>
+        <label>y1 <input value="552.95" data-field="y1" readonly></label>
+        <label>x2 <input value="66.24" data-field="x2" readonly></label>
+        <label>y2 <input value="556.95" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="123">
+      <div class="card-title">
+        <h2>Frame 123</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00123.jpg" alt="clean frame 123">
+            <canvas data-frame="123"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00123_draft.jpg" alt="draft frame 123" onerror="this.src='frames/frame_00123.jpg'">
+            <canvas data-frame="123" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="50.75" data-field="x1" readonly></label>
+        <label>y1 <input value="556.65" data-field="y1" readonly></label>
+        <label>x2 <input value="54.75" data-field="x2" readonly></label>
+        <label>y2 <input value="560.65" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="124">
+      <div class="card-title">
+        <h2>Frame 124</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00124.jpg" alt="clean frame 124">
+            <canvas data-frame="124"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00124_draft.jpg" alt="draft frame 124" onerror="this.src='frames/frame_00124.jpg'">
+            <canvas data-frame="124" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="39.27" data-field="x1" readonly></label>
+        <label>y1 <input value="560.35" data-field="y1" readonly></label>
+        <label>x2 <input value="43.27" data-field="x2" readonly></label>
+        <label>y2 <input value="564.35" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="125">
+      <div class="card-title">
+        <h2>Frame 125</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00125.jpg" alt="clean frame 125">
+            <canvas data-frame="125"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00125_draft.jpg" alt="draft frame 125" onerror="this.src='frames/frame_00125.jpg'">
+            <canvas data-frame="125" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="" data-field="x1" readonly></label>
+        <label>y1 <input value="" data-field="y1" readonly></label>
+        <label>x2 <input value="" data-field="x2" readonly></label>
+        <label>y2 <input value="" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="126">
+      <div class="card-title">
+        <h2>Frame 126</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00126.jpg" alt="clean frame 126">
+            <canvas data-frame="126"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00126_draft.jpg" alt="draft frame 126" onerror="this.src='frames/frame_00126.jpg'">
+            <canvas data-frame="126" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="824.04" data-field="x1" readonly></label>
+        <label>y1 <input value="293.42" data-field="y1" readonly></label>
+        <label>x2 <input value="849.78" data-field="x2" readonly></label>
+        <label>y2 <input value="311.85" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="127">
+      <div class="card-title">
+        <h2>Frame 127</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00127.jpg" alt="clean frame 127">
+            <canvas data-frame="127"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00127_draft.jpg" alt="draft frame 127" onerror="this.src='frames/frame_00127.jpg'">
+            <canvas data-frame="127" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="824.04" data-field="x1" readonly></label>
+        <label>y1 <input value="293.42" data-field="y1" readonly></label>
+        <label>x2 <input value="849.78" data-field="x2" readonly></label>
+        <label>y2 <input value="311.85" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="128">
+      <div class="card-title">
+        <h2>Frame 128</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00128.jpg" alt="clean frame 128">
+            <canvas data-frame="128"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00128_draft.jpg" alt="draft frame 128" onerror="this.src='frames/frame_00128.jpg'">
+            <canvas data-frame="128" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="920.42" data-field="x1" readonly></label>
+        <label>y1 <input value="262.25" data-field="y1" readonly></label>
+        <label>x2 <input value="947.85" data-field="x2" readonly></label>
+        <label>y2 <input value="281.95" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="129">
+      <div class="card-title">
+        <h2>Frame 129</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00129.jpg" alt="clean frame 129">
+            <canvas data-frame="129"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00129_draft.jpg" alt="draft frame 129" onerror="this.src='frames/frame_00129.jpg'">
+            <canvas data-frame="129" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="975.78" data-field="x1" readonly></label>
+        <label>y1 <input value="244.26" data-field="y1" readonly></label>
+        <label>x2 <input value="1008.38" data-field="x2" readonly></label>
+        <label>y2 <input value="264.44" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="130">
+      <div class="card-title">
+        <h2>Frame 130</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00130.jpg" alt="clean frame 130">
+            <canvas data-frame="130"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00130_draft.jpg" alt="draft frame 130" onerror="this.src='frames/frame_00130.jpg'">
+            <canvas data-frame="130" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1033.59" data-field="x1" readonly></label>
+        <label>y1 <input value="226.04" data-field="y1" readonly></label>
+        <label>x2 <input value="1066.89" data-field="x2" readonly></label>
+        <label>y2 <input value="246.07" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="131">
+      <div class="card-title">
+        <h2>Frame 131</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00131.jpg" alt="clean frame 131">
+            <canvas data-frame="131"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00131_draft.jpg" alt="draft frame 131" onerror="this.src='frames/frame_00131.jpg'">
+            <canvas data-frame="131" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1097.40" data-field="x1" readonly></label>
+        <label>y1 <input value="206.19" data-field="y1" readonly></label>
+        <label>x2 <input value="1131.44" data-field="x2" readonly></label>
+        <label>y2 <input value="226.06" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="132">
+      <div class="card-title">
+        <h2>Frame 132</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00132.jpg" alt="clean frame 132">
+            <canvas data-frame="132"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00132_draft.jpg" alt="draft frame 132" onerror="this.src='frames/frame_00132.jpg'">
+            <canvas data-frame="132" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1164.62" data-field="x1" readonly></label>
+        <label>y1 <input value="184.05" data-field="y1" readonly></label>
+        <label>x2 <input value="1199.88" data-field="x2" readonly></label>
+        <label>y2 <input value="206.43" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="133">
+      <div class="card-title">
+        <h2>Frame 133</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00133.jpg" alt="clean frame 133">
+            <canvas data-frame="133"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00133_draft.jpg" alt="draft frame 133" onerror="this.src='frames/frame_00133.jpg'">
+            <canvas data-frame="133" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1224.80" data-field="x1" readonly></label>
+        <label>y1 <input value="164.71" data-field="y1" readonly></label>
+        <label>x2 <input value="1261.51" data-field="x2" readonly></label>
+        <label>y2 <input value="187.98" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="134">
+      <div class="card-title">
+        <h2>Frame 134</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00134.jpg" alt="clean frame 134">
+            <canvas data-frame="134"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00134_draft.jpg" alt="draft frame 134" onerror="this.src='frames/frame_00134.jpg'">
+            <canvas data-frame="134" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1279.00" data-field="x1" readonly></label>
+        <label>y1 <input value="145.37" data-field="y1" readonly></label>
+        <label>x2 <input value="1280.00" data-field="x2" readonly></label>
+        <label>y2 <input value="169.52" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="135">
+      <div class="card-title">
+        <h2>Frame 135</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00135.jpg" alt="clean frame 135">
+            <canvas data-frame="135"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00135_draft.jpg" alt="draft frame 135" onerror="this.src='frames/frame_00135.jpg'">
+            <canvas data-frame="135" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1279.00" data-field="x1" readonly></label>
+        <label>y1 <input value="126.04" data-field="y1" readonly></label>
+        <label>x2 <input value="1280.00" data-field="x2" readonly></label>
+        <label>y2 <input value="151.07" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="136">
+      <div class="card-title">
+        <h2>Frame 136</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00136.jpg" alt="clean frame 136">
+            <canvas data-frame="136"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00136_draft.jpg" alt="draft frame 136" onerror="this.src='frames/frame_00136.jpg'">
+            <canvas data-frame="136" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1279.00" data-field="x1" readonly></label>
+        <label>y1 <input value="106.70" data-field="y1" readonly></label>
+        <label>x2 <input value="1280.00" data-field="x2" readonly></label>
+        <label>y2 <input value="132.62" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="137">
+      <div class="card-title">
+        <h2>Frame 137</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00137.jpg" alt="clean frame 137">
+            <canvas data-frame="137"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00137_draft.jpg" alt="draft frame 137" onerror="this.src='frames/frame_00137.jpg'">
+            <canvas data-frame="137" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1279.00" data-field="x1" readonly></label>
+        <label>y1 <input value="87.37" data-field="y1" readonly></label>
+        <label>x2 <input value="1280.00" data-field="x2" readonly></label>
+        <label>y2 <input value="114.16" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="138">
+      <div class="card-title">
+        <h2>Frame 138</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00138.jpg" alt="clean frame 138">
+            <canvas data-frame="138"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00138_draft.jpg" alt="draft frame 138" onerror="this.src='frames/frame_00138.jpg'">
+            <canvas data-frame="138" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1279.00" data-field="x1" readonly></label>
+        <label>y1 <input value="68.03" data-field="y1" readonly></label>
+        <label>x2 <input value="1280.00" data-field="x2" readonly></label>
+        <label>y2 <input value="95.71" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="139">
+      <div class="card-title">
+        <h2>Frame 139</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00139.jpg" alt="clean frame 139">
+            <canvas data-frame="139"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00139_draft.jpg" alt="draft frame 139" onerror="this.src='frames/frame_00139.jpg'">
+            <canvas data-frame="139" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1279.00" data-field="x1" readonly></label>
+        <label>y1 <input value="48.69" data-field="y1" readonly></label>
+        <label>x2 <input value="1280.00" data-field="x2" readonly></label>
+        <label>y2 <input value="77.26" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+
+    <section class="card" data-frame="140">
+      <div class="card-title">
+        <h2>Frame 140</h2>
+        <span class="pill">draft is not truth</span>
+      </div>
+      <div class="images">
+        <figure>
+          <figcaption>Draw corrected drone box here</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00140.jpg" alt="clean frame 140">
+            <canvas data-frame="140"></canvas>
+          </div>
+        </figure>
+        <figure>
+          <figcaption>Draft tracker box - you can redraw here too</figcaption>
+          <div class="canvas-wrap">
+            <img loading="lazy" src="frames/frame_00140_draft.jpg" alt="draft frame 140" onerror="this.src='frames/frame_00140.jpg'">
+            <canvas data-frame="140" data-side="draft"></canvas>
+          </div>
+        </figure>
+      </div>
+      <div class="grid">
+        <label>x1 <input value="1279.00" data-field="x1" readonly></label>
+        <label>y1 <input value="29.36" data-field="y1" readonly></label>
+        <label>x2 <input value="1280.00" data-field="x2" readonly></label>
+        <label>y2 <input value="58.81" data-field="y2" readonly></label>
+        <label>status <select data-field="review_status"><option value="draft">draft</option><option value="ok" selected>ok</option><option value="skip">skip</option></select></label>
+        <label>label <select data-field="label"><option value="drone" selected>drone</option><option value="negative">negative</option></select></label>
+        <label>occluded <select data-field="occluded"><option value=""></option><option value="0" selected>0</option><option value="1">1</option></select></label>
+        <label>visibility <input value="1.0" data-field="visibility" placeholder="0.0-1.0"></label>
+        <label>notes <input value="" data-field="notes"></label>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="markOk(this)">OK Drone</button>
+        <button type="button" onclick="markOccluded(this)">Occluded OK</button>
+        <button type="button" class="warn" onclick="markNegative(this)">Negative</button>
+        <button type="button" class="secondary" onclick="markSkip(this)">Skip</button>
+        <button type="button" class="secondary" onclick="resetDraft(this)">Reset Draft</button>
+      </div>
+    </section>
+
+  </main>
+  <script>
+    const initialRows = JSON.parse(decodeURIComponent(Array.prototype.map.call(atob('W3siZnJhbWVfaWQiOiA4MCwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDA4MC5qcGciLCAieDEiOiAiNTk0LjE5IiwgInkxIjogIjM3OC45MyIsICJ4MiI6ICI2MjAuMjgiLCAieTIiOiAiMzk3LjI3IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDgxLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMDgxLmpwZyIsICJ4MSI6ICI1NzUuNDgiLCAieTEiOiAiMzg0Ljc3IiwgIngyIjogIjYwMC44MCIsICJ5MiI6ICI0MDIuNTgiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogODIsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAwODIuanBnIiwgIngxIjogIjU1OC45NSIsICJ5MSI6ICIzODguNTgiLCAieDIiOiAiNTgzLjY3IiwgInkyIjogIjQwNi45MSIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiA4MywgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDA4My5qcGciLCAieDEiOiAiNTQxLjA2IiwgInkxIjogIjM5MS43MiIsICJ4MiI6ICI1NjYuMDAiLCAieTIiOiAiNDEwLjQ1IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDg0LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMDg0LmpwZyIsICJ4MSI6ICI1MjQuNzEiLCAieTEiOiAiMzk1LjU1IiwgIngyIjogIjU0OS42OCIsICJ5MiI6ICI0MTQuNDIiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogODUsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAwODUuanBnIiwgIngxIjogIjUwOC4zNiIsICJ5MSI6ICIzOTkuMzgiLCAieDIiOiAiNTMzLjM3IiwgInkyIjogIjQxOC4zOSIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiA4NiwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDA4Ni5qcGciLCAieDEiOiAiNDkyLjAxIiwgInkxIjogIjQwMy4yMSIsICJ4MiI6ICI1MTcuMDUiLCAieTIiOiAiNDIyLjM2IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDg3LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMDg3LmpwZyIsICJ4MSI6ICI0NzUuNjYiLCAieTEiOiAiNDA3LjA0IiwgIngyIjogIjUwMC43NCIsICJ5MiI6ICI0MjYuMzMiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogODgsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAwODguanBnIiwgIngxIjogIjQ1OS4zMSIsICJ5MSI6ICI0MTAuODgiLCAieDIiOiAiNDg0LjQyIiwgInkyIjogIjQzMC4zMCIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiA4OSwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDA4OS5qcGciLCAieDEiOiAiNDM3LjAzIiwgInkxIjogIjQyMi42NyIsICJ4MiI6ICI0NjEuMTkiLCAieTIiOiAiNDM4LjMwIiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDkwLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMDkwLmpwZyIsICJ4MSI6ICI0MjAuNDEiLCAieTEiOiAiNDI3Ljk4IiwgIngyIjogIjQ0My43OCIsICJ5MiI6ICI0NDMuMzQiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogOTEsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAwOTEuanBnIiwgIngxIjogIjQwNS42MSIsICJ5MSI6ICI0MzMuMzUiLCAieDIiOiAiNDI4LjEyIiwgInkyIjogIjQ0Ny43MiIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiA5MiwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDA5Mi5qcGciLCAieDEiOiAiMzk0LjA1IiwgInkxIjogIjQzOC41MyIsICJ4MiI6ICI0MTQuNDMiLCAieTIiOiAiNDUyLjUyIiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDkzLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMDkzLmpwZyIsICJ4MSI6ICIzNzkuNDEiLCAieTEiOiAiNDQzLjc4IiwgIngyIjogIjM5OC44MCIsICJ5MiI6ICI0NTcuMjMiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogOTQsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAwOTQuanBnIiwgIngxIjogIjM3Ny4zMiIsICJ5MSI6ICI0NDQuNTQiLCAieDIiOiAiMzk0LjMwIiwgInkyIjogIjQ1OC4xMyIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiA5NSwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDA5NS5qcGciLCAieDEiOiAiMzY2LjUzIiwgInkxIjogIjQ0OC40MSIsICJ4MiI6ICIzODIuMTIiLCAieTIiOiAiNDYxLjY2IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDk2LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMDk2LmpwZyIsICJ4MSI6ICIzNTUuNzQiLCAieTEiOiAiNDUyLjI4IiwgIngyIjogIjM2OS45NCIsICJ5MiI6ICI0NjUuMTkiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogOTcsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAwOTcuanBnIiwgIngxIjogIjM0NC45NSIsICJ5MSI6ICI0NTYuMTYiLCAieDIiOiAiMzU3Ljc2IiwgInkyIjogIjQ2OC43MiIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiA5OCwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDA5OC5qcGciLCAieDEiOiAiMzM0LjE2IiwgInkxIjogIjQ2MC4wMyIsICJ4MiI6ICIzNDUuNTkiLCAieTIiOiAiNDcyLjI0IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDk5LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMDk5LmpwZyIsICJ4MSI6ICIzMjMuMzciLCAieTEiOiAiNDYzLjkxIiwgIngyIjogIjMzMy40MSIsICJ5MiI6ICI0NzUuNzciLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTAwLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTAwLmpwZyIsICJ4MSI6ICIzMTIuNTgiLCAieTEiOiAiNDY3Ljc4IiwgIngyIjogIjMyMS4yMyIsICJ5MiI6ICI0NzkuMzAiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTAxLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTAxLmpwZyIsICJ4MSI6ICIzMDEuNzkiLCAieTEiOiAiNDcxLjY2IiwgIngyIjogIjMwOS4wNSIsICJ5MiI6ICI0ODIuODIiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTAyLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTAyLmpwZyIsICJ4MSI6ICIyOTEuMDAiLCAieTEiOiAiNDc1LjUzIiwgIngyIjogIjI5Ni44NyIsICJ5MiI6ICI0ODYuMzUiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTAzLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTAzLmpwZyIsICJ4MSI6ICIyODAuMjEiLCAieTEiOiAiNDc5LjQwIiwgIngyIjogIjI4NC42OSIsICJ5MiI6ICI0ODkuODgiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTA0LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTA0LmpwZyIsICJ4MSI6ICIyNjguOTYiLCAieTEiOiAiNDgzLjI4IiwgIngyIjogIjI3Mi45NiIsICJ5MiI6ICI0OTMuNDAiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTA1LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTA1LmpwZyIsICJ4MSI6ICIyNTcuNDgiLCAieTEiOiAiNDg3LjE1IiwgIngyIjogIjI2MS40OCIsICJ5MiI6ICI0OTYuOTMiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTA2LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTA2LmpwZyIsICJ4MSI6ICIyNDUuOTkiLCAieTEiOiAiNDkxLjAzIiwgIngyIjogIjI0OS45OSIsICJ5MiI6ICI1MDAuNDYiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTA3LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTA3LmpwZyIsICJ4MSI6ICIyMzQuNTEiLCAieTEiOiAiNDk0LjkwIiwgIngyIjogIjIzOC41MSIsICJ5MiI6ICI1MDMuOTgiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTA4LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTA4LmpwZyIsICJ4MSI6ICIyMjMuMDIiLCAieTEiOiAiNDk4Ljc4IiwgIngyIjogIjIyNy4wMiIsICJ5MiI6ICI1MDcuNTEiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTA5LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTA5LmpwZyIsICJ4MSI6ICIyMTEuNTQiLCAieTEiOiAiNTAyLjY1IiwgIngyIjogIjIxNS41NCIsICJ5MiI6ICI1MTEuMDQiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTEwLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTEwLmpwZyIsICJ4MSI6ICIyMDAuMDUiLCAieTEiOiAiNTA2LjUzIiwgIngyIjogIjIwNC4wNSIsICJ5MiI6ICI1MTQuNTYiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTExLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTExLmpwZyIsICJ4MSI6ICIxODguNTciLCAieTEiOiAiNTEwLjQwIiwgIngyIjogIjE5Mi41NyIsICJ5MiI6ICI1MTguMDkiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTEyLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTEyLmpwZyIsICJ4MSI6ICIxNzcuMDkiLCAieTEiOiAiNTE0LjI3IiwgIngyIjogIjE4MS4wOSIsICJ5MiI6ICI1MjEuNjIiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTEzLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTEzLmpwZyIsICJ4MSI6ICIxNjUuNjAiLCAieTEiOiAiNTE4LjE1IiwgIngyIjogIjE2OS42MCIsICJ5MiI6ICI1MjUuMTQiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTE0LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTE0LmpwZyIsICJ4MSI6ICIxNTQuMTIiLCAieTEiOiAiNTIyLjAyIiwgIngyIjogIjE1OC4xMiIsICJ5MiI6ICI1MjguNjciLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTE1LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTE1LmpwZyIsICJ4MSI6ICIxNDIuNjMiLCAieTEiOiAiNTI1LjkwIiwgIngyIjogIjE0Ni42MyIsICJ5MiI6ICI1MzIuMjAiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTE2LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTE2LmpwZyIsICJ4MSI6ICIxMzEuMTUiLCAieTEiOiAiNTI5Ljc3IiwgIngyIjogIjEzNS4xNSIsICJ5MiI6ICI1MzUuNzIiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTE3LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTE3LmpwZyIsICJ4MSI6ICIxMTkuNjYiLCAieTEiOiAiNTMzLjY1IiwgIngyIjogIjEyMy42NiIsICJ5MiI6ICI1MzkuMjUiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTE4LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTE4LmpwZyIsICJ4MSI6ICIxMDguMTgiLCAieTEiOiAiNTM3LjUyIiwgIngyIjogIjExMi4xOCIsICJ5MiI6ICI1NDIuNzgiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTE5LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTE5LmpwZyIsICJ4MSI6ICI5Ni42OSIsICJ5MSI6ICI1NDEuMzkiLCAieDIiOiAiMTAwLjY5IiwgInkyIjogIjU0Ni4zMCIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiAxMjAsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAxMjAuanBnIiwgIngxIjogIjg1LjIxIiwgInkxIjogIjU0NS4yNyIsICJ4MiI6ICI4OS4yMSIsICJ5MiI6ICI1NDkuODMiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTIxLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTIxLmpwZyIsICJ4MSI6ICI3My43MiIsICJ5MSI6ICI1NDkuMTQiLCAieDIiOiAiNzcuNzIiLCAieTIiOiAiNTUzLjM2IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDEyMiwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDEyMi5qcGciLCAieDEiOiAiNjIuMjQiLCAieTEiOiAiNTUyLjk1IiwgIngyIjogIjY2LjI0IiwgInkyIjogIjU1Ni45NSIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiAxMjMsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAxMjMuanBnIiwgIngxIjogIjUwLjc1IiwgInkxIjogIjU1Ni42NSIsICJ4MiI6ICI1NC43NSIsICJ5MiI6ICI1NjAuNjUiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTI0LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTI0LmpwZyIsICJ4MSI6ICIzOS4yNyIsICJ5MSI6ICI1NjAuMzUiLCAieDIiOiAiNDMuMjciLCAieTIiOiAiNTY0LjM1IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDEyNSwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDEyNS5qcGciLCAieDEiOiAiIiwgInkxIjogIiIsICJ4MiI6ICIiLCAieTIiOiAiIiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDEyNiwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDEyNi5qcGciLCAieDEiOiAiODI0LjA0IiwgInkxIjogIjI5My40MiIsICJ4MiI6ICI4NDkuNzgiLCAieTIiOiAiMzExLjg1IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDEyNywgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDEyNy5qcGciLCAieDEiOiAiODI0LjA0IiwgInkxIjogIjI5My40MiIsICJ4MiI6ICI4NDkuNzgiLCAieTIiOiAiMzExLjg1IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDEyOCwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDEyOC5qcGciLCAieDEiOiAiOTIwLjQyIiwgInkxIjogIjI2Mi4yNSIsICJ4MiI6ICI5NDcuODUiLCAieTIiOiAiMjgxLjk1IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDEyOSwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDEyOS5qcGciLCAieDEiOiAiOTc1Ljc4IiwgInkxIjogIjI0NC4yNiIsICJ4MiI6ICIxMDA4LjM4IiwgInkyIjogIjI2NC40NCIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiAxMzAsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAxMzAuanBnIiwgIngxIjogIjEwMzMuNTkiLCAieTEiOiAiMjI2LjA0IiwgIngyIjogIjEwNjYuODkiLCAieTIiOiAiMjQ2LjA3IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDEzMSwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDEzMS5qcGciLCAieDEiOiAiMTA5Ny40MCIsICJ5MSI6ICIyMDYuMTkiLCAieDIiOiAiMTEzMS40NCIsICJ5MiI6ICIyMjYuMDYiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTMyLCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTMyLmpwZyIsICJ4MSI6ICIxMTY0LjYyIiwgInkxIjogIjE4NC4wNSIsICJ4MiI6ICIxMTk5Ljg4IiwgInkyIjogIjIwNi40MyIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiAxMzMsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAxMzMuanBnIiwgIngxIjogIjEyMjQuODAiLCAieTEiOiAiMTY0LjcxIiwgIngyIjogIjEyNjEuNTEiLCAieTIiOiAiMTg3Ljk4IiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDEzNCwgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDEzNC5qcGciLCAieDEiOiAiMTI3OS4wMCIsICJ5MSI6ICIxNDUuMzciLCAieDIiOiAiMTI4MC4wMCIsICJ5MiI6ICIxNjkuNTIiLCAicmV2aWV3X3N0YXR1cyI6ICJvayIsICJ2aXNpYmlsaXR5IjogIjEuMCIsICJvY2NsdWRlZCI6ICIwIiwgImxhYmVsIjogImRyb25lIiwgIm5vdGVzIjogIiJ9LCB7ImZyYW1lX2lkIjogMTM1LCAiaW1hZ2UiOiAiZnJhbWVzL2ZyYW1lXzAwMTM1LmpwZyIsICJ4MSI6ICIxMjc5LjAwIiwgInkxIjogIjEyNi4wNCIsICJ4MiI6ICIxMjgwLjAwIiwgInkyIjogIjE1MS4wNyIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiAxMzYsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAxMzYuanBnIiwgIngxIjogIjEyNzkuMDAiLCAieTEiOiAiMTA2LjcwIiwgIngyIjogIjEyODAuMDAiLCAieTIiOiAiMTMyLjYyIiwgInJldmlld19zdGF0dXMiOiAib2siLCAidmlzaWJpbGl0eSI6ICIxLjAiLCAib2NjbHVkZWQiOiAiMCIsICJsYWJlbCI6ICJkcm9uZSIsICJub3RlcyI6ICIifSwgeyJmcmFtZV9pZCI6IDEzNywgImltYWdlIjogImZyYW1lcy9mcmFtZV8wMDEzNy5qcGciLCAieDEiOiAiMTI3OS4wMCIsICJ5MSI6ICI4Ny4zNyIsICJ4MiI6ICIxMjgwLjAwIiwgInkyIjogIjExNC4xNiIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiAxMzgsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAxMzguanBnIiwgIngxIjogIjEyNzkuMDAiLCAieTEiOiAiNjguMDMiLCAieDIiOiAiMTI4MC4wMCIsICJ5MiI6ICI5NS43MSIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiAxMzksICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAxMzkuanBnIiwgIngxIjogIjEyNzkuMDAiLCAieTEiOiAiNDguNjkiLCAieDIiOiAiMTI4MC4wMCIsICJ5MiI6ICI3Ny4yNiIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn0sIHsiZnJhbWVfaWQiOiAxNDAsICJpbWFnZSI6ICJmcmFtZXMvZnJhbWVfMDAxNDAuanBnIiwgIngxIjogIjEyNzkuMDAiLCAieTEiOiAiMjkuMzYiLCAieDIiOiAiMTI4MC4wMCIsICJ5MiI6ICI1OC44MSIsICJyZXZpZXdfc3RhdHVzIjogIm9rIiwgInZpc2liaWxpdHkiOiAiMS4wIiwgIm9jY2x1ZGVkIjogIjAiLCAibGFiZWwiOiAiZHJvbmUiLCAibm90ZXMiOiAiIn1d'), c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')));
+    const rowByFrame = new Map(initialRows.map(r => [String(r.frame_id), r]));
+
+    function fields(card) {
+      const out = {};
+      card.querySelectorAll('[data-field]').forEach(el => out[el.dataset.field] = el);
+      return out;
+    }
+    function setCardState(card) {
+      const f = fields(card);
+      card.dataset.status = f.review_status.value;
+      card.dataset.label = f.label.value;
+      updateStats();
+    }
+    function setBox(card, box) {
+      const f = fields(card);
+      f.x1.value = Number.isFinite(box.x1) ? box.x1.toFixed(2) : '';
+      f.y1.value = Number.isFinite(box.y1) ? box.y1.toFixed(2) : '';
+      f.x2.value = Number.isFinite(box.x2) ? box.x2.toFixed(2) : '';
+      f.y2.value = Number.isFinite(box.y2) ? box.y2.toFixed(2) : '';
+      drawCanvases(card);
+    }
+    function getBox(card) {
+      const f = fields(card);
+      return {x1:+f.x1.value, y1:+f.y1.value, x2:+f.x2.value, y2:+f.y2.value};
+    }
+    function hasBox(card) {
+      const b = getBox(card);
+      return Number.isFinite(b.x1) && Number.isFinite(b.y1) && Number.isFinite(b.x2) && Number.isFinite(b.y2) && b.x2 > b.x1 && b.y2 > b.y1;
+    }
+    function drawCanvas(card, canvas) {
+      const img = canvas.closest('.canvas-wrap').querySelector('img');
+      const ctx = canvas.getContext('2d');
+      const w = img.naturalWidth || 1920;
+      const h = img.naturalHeight || 1080;
+      canvas.width = w;
+      canvas.height = h;
+      ctx.clearRect(0, 0, w, h);
+      if (!hasBox(card)) return;
+      const b = getBox(card);
+      ctx.lineWidth = Math.max(3, w / 520);
+      ctx.strokeStyle = fields(card).label.value === 'negative' ? '#ff3333' : '#ff00cc';
+      ctx.fillStyle = fields(card).label.value === 'negative' ? 'rgba(255,51,51,0.10)' : 'rgba(255,0,204,0.10)';
+      ctx.fillRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1);
+      ctx.strokeRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1);
+    }
+    function drawCanvases(card) {
+      card.querySelectorAll('canvas').forEach(canvas => drawCanvas(card, canvas));
+    }
+    function pointerToImage(e, canvas) {
+      const r = canvas.getBoundingClientRect();
+      return { x: (e.clientX - r.left) * canvas.width / r.width, y: (e.clientY - r.top) * canvas.height / r.height };
+    }
+    document.querySelectorAll('.card').forEach(card => {
+      let start = null;
+      card.querySelectorAll('.canvas-wrap img').forEach(img => img.addEventListener('load', () => drawCanvases(card)));
+      card.querySelectorAll('canvas').forEach(canvas => {
+        canvas.addEventListener('pointerdown', e => {
+          start = pointerToImage(e, canvas);
+          canvas.setPointerCapture(e.pointerId);
+        });
+        canvas.addEventListener('pointermove', e => {
+          if (!start) return;
+          const p = pointerToImage(e, canvas);
+          setBox(card, { x1: Math.min(start.x, p.x), y1: Math.min(start.y, p.y), x2: Math.max(start.x, p.x), y2: Math.max(start.y, p.y) });
+        });
+        canvas.addEventListener('pointerup', () => {
+          if (!start) return;
+          const f = fields(card);
+          if (f.review_status.value === 'draft') f.review_status.value = 'ok';
+          if (!f.occluded.value) f.occluded.value = '0';
+          if (!f.visibility.value) f.visibility.value = '1.0';
+          start = null;
+          setCardState(card);
+          drawCanvases(card);
+        });
+      });
+      card.querySelectorAll('[data-field]').forEach(el => el.addEventListener('change', () => { setCardState(card); drawCanvases(card); }));
+      setCardState(card);
+      drawCanvases(card);
+    });
+    function cardFromButton(btn) { return btn.closest('.card'); }
+    function markOk(btn) {
+      const card = cardFromButton(btn);
+      const f = fields(card);
+      f.review_status.value = 'ok';
+      f.label.value = 'drone';
+      if (!f.occluded.value) f.occluded.value = '0';
+      if (!f.visibility.value) f.visibility.value = '1.0';
+      setCardState(card);
+    }
+    function markNegative(btn) {
+      const card = cardFromButton(btn);
+      const f = fields(card);
+      f.review_status.value = 'ok';
+      f.label.value = 'negative';
+      f.x1.value = f.y1.value = f.x2.value = f.y2.value = '';
+      f.occluded.value = '0';
+      f.visibility.value = '0';
+      setCardState(card);
+      drawCanvases(card);
+    }
+    function markOccluded(btn) {
+      const card = cardFromButton(btn);
+      const f = fields(card);
+      f.review_status.value = 'ok';
+      f.label.value = 'drone';
+      f.occluded.value = '1';
+      if (!f.visibility.value) f.visibility.value = '0.7';
+      setCardState(card);
+    }
+    function markSkip(btn) {
+      const card = cardFromButton(btn);
+      fields(card).review_status.value = 'skip';
+      setCardState(card);
+    }
+    function resetDraft(btn) {
+      const card = cardFromButton(btn);
+      const r = rowByFrame.get(card.dataset.frame);
+      setBox(card, {x1:+r.x1, y1:+r.y1, x2:+r.x2, y2:+r.y2});
+      const f = fields(card);
+      f.review_status.value = 'draft';
+      f.label.value = r.label || 'drone';
+      f.visibility.value = r.visibility || '';
+      f.occluded.value = r.occluded || '';
+      f.notes.value = r.notes || '';
+      setCardState(card);
+    }
+    function collectRows() {
+      return Array.from(document.querySelectorAll('.card')).map(card => {
+        const row = { frame_id: card.dataset.frame, image: `frames/frame_${String(card.dataset.frame).padStart(5, '0')}.jpg` };
+        card.querySelectorAll('[data-field]').forEach(el => row[el.dataset.field] = el.value);
+        return row;
+      });
+    }
+    function downloadCsv() {
+      const cols = ['frame_id','image','x1','y1','x2','y2','review_status','visibility','occluded','label','notes'];
+      const lines = [cols.join(',')];
+      for (const row of collectRows()) {
+        lines.push(cols.map(c => `"${String(row[c] ?? '').replaceAll('"', '""')}"`).join(','));
+      }
+      const blob = new Blob([lines.join('\n') + '\n'], {type: 'text/csv'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'drone_sparse_gt_corrected.csv';
+      a.click();
+    }
+    function updateStats() {
+      const rows = collectRows();
+      const counts = rows.reduce((acc, r) => { acc[r.review_status] = (acc[r.review_status] || 0) + 1; acc[r.label] = (acc[r.label] || 0) + 1; return acc; }, {});
+      document.getElementById('stats').textContent = `total=${rows.length} ok=${counts.ok||0} draft=${counts.draft||0} skip=${counts.skip||0} negative=${counts.negative||0}`;
+    }
+    function showAll() { document.querySelectorAll('.card').forEach(c => c.classList.remove('hidden')); }
+    function showOnlyDrafts() { document.querySelectorAll('.card').forEach(c => c.classList.toggle('hidden', fields(c).review_status.value !== 'draft')); }
+    function showOnlyProblems() { document.querySelectorAll('.card').forEach(c => c.classList.toggle('hidden', !(fields(c).review_status.value === 'skip' || fields(c).label.value === 'negative'))); }
+    function markVisibleDraftsOk() {
+      document.querySelectorAll('.card:not(.hidden)').forEach(card => {
+        const f = fields(card);
+        if (f.review_status.value === 'draft' && hasBox(card)) {
+          f.review_status.value = 'ok';
+          f.label.value = 'drone';
+          if (!f.occluded.value) f.occluded.value = '0';
+          if (!f.visibility.value) f.visibility.value = '1.0';
+          setCardState(card);
+        }
+      });
+    }
+    function jumpToFrame() {
+      const frame = String(document.getElementById('jumpFrame').value);
+      const card = document.querySelector(`.card[data-frame="${frame}"]`);
+      if (card) card.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+  </script>
+</body>
+</html>

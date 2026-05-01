@@ -30,7 +30,7 @@ camera:
 # (Note: data.yaml v2 may differ in class index ordering — verify if needed.)
 detector:
   backend: "yolo_ultralytics"
-  weights: "data/training/runs/yolo11s_airborne_drone_vs_bird_v2/weights/best.pt"
+  weights: "data/models/yolo11s_airborne_drone_vs_bird_v2/best.pt"
   input_size: 1024
   confidence_threshold: 0.25
   iou_threshold: 0.45

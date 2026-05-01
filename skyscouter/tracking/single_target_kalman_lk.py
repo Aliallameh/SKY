@@ -72,6 +72,18 @@ def _is_boundary_clipped(d: Detection) -> bool:
     return d.x <= 1.0 or d.y <= 1.0
 
 
+def _is_airborne_label(label: str) -> bool:
+    return str(label).lower().strip() in {
+        "airplane",
+        "aircraft",
+        "drone",
+        "uas",
+        "airborne_candidate",
+        "drone_candidate",
+        "uas_candidate",
+    }
+
+
 class AppearanceModel:
     """Tiny HSV-HS histogram identity memory."""
 
@@ -236,12 +248,16 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         lk_min_points: int = 8,
         reacquisition_radius_px: float = 160.0,
         max_primary_switches_per_second: float = 1.0,
+        max_prediction_only_frames: int = 6,
+        min_prediction_confidence: float = 0.05,
     ):
         self._min_track_length = int(min_track_length)
         self._max_age = int(track_buffer_frames)
         self._lk_min_points = int(lk_min_points)
         self._reacq_radius = float(reacquisition_radius_px)
         self._max_switches_per_second = float(max_primary_switches_per_second)
+        self._max_prediction_only_frames = int(max_prediction_only_frames)
+        self._min_prediction_confidence = float(min_prediction_confidence)
         self._appearance = AppearanceModel()
         self._flow = LKFlowPropagator(min_points=lk_min_points)
         self._next_id = 1
@@ -261,6 +277,8 @@ class SingleTargetKalmanLKTracker(BaseTracker):
             lk_min_points=self._lk_min_points,
             reacquisition_radius_px=self._reacq_radius,
             max_primary_switches_per_second=self._max_switches_per_second,
+            max_prediction_only_frames=self._max_prediction_only_frames,
+            min_prediction_confidence=self._min_prediction_confidence,
         )
 
     def update(
@@ -302,6 +320,10 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         ):
             best_det = rescue_det
             score = max(score, 0.65 + 0.25 * rescue_det.confidence)
+        reentry_det = self._stale_reentry_candidate(predicted, best_det, detections)
+        if reentry_det is not None:
+            best_det = reentry_det
+            score = max(score, 0.24 + 0.35 * reentry_det.confidence)
         matched = best_det is not None and score >= 0.18
         if not matched and flow_det is not None and flow_quality >= 0.25:
             best_det = flow_det
@@ -334,6 +356,21 @@ class SingleTargetKalmanLKTracker(BaseTracker):
             status = "predicted"
 
         self._last_gray = gray
+        if (
+            status in {"flow", "predicted"}
+            and self._age_since_update > self._max_prediction_only_frames
+        ) or (
+            status == "predicted" and det.confidence < self._min_prediction_confidence
+        ):
+            # A Kalman-only box after several missed detector frames is not an
+            # observation, and LK flow is still only a bridge between detector
+            # hits. Emitting either for too long makes the overlay look like a
+            # false detection and can visually chase empty sky after a target
+            # exits or reverses direction. Clear state so the next real detector
+            # hit starts fresh instead of dragging stale motion.
+            self._clear_track()
+            return []
+
         if self._age_since_update > self._max_age:
             # Track stale beyond the buffer. Don't keep dead-reckoning the
             # Kalman state across the gap: with a constant-velocity model,
@@ -344,14 +381,7 @@ class SingleTargetKalmanLKTracker(BaseTracker):
             # _choose_initial_detection() branch and re-acquires from the
             # strongest available detection. This is the detector→track
             # re-init pattern used by the Anti-UAV reference implementation.
-            self._x = None
-            self._P = None
-            self._track = None
-            self._track_id = None
-            self._hits = 0
-            self._age_since_update = 0
-            self._appearance = AppearanceModel()
-            self._flow = LKFlowPropagator(min_points=self._lk_min_points)
+            self._clear_track()
             return []
 
         tr = self._make_track(
@@ -365,6 +395,16 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         )
         self._track = tr
         return [tr]
+
+    def _clear_track(self) -> None:
+        self._x = None
+        self._P = None
+        self._track = None
+        self._track_id = None
+        self._hits = 0
+        self._age_since_update = 0
+        self._appearance = AppearanceModel()
+        self._flow = LKFlowPropagator(min_points=self._lk_min_points)
 
     @property
     def min_track_length(self) -> int:
@@ -494,6 +534,44 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         if strongest.cy >= reference_y:
             return None
         return strongest
+
+    def _stale_reentry_candidate(
+        self,
+        predicted: Detection,
+        current_match: Optional[Detection],
+        detections: List[Detection],
+    ) -> Optional[Detection]:
+        if not detections:
+            return None
+
+        candidates = [
+            d for d in detections
+            if d.confidence >= 0.20 and _is_airborne_label(d.class_label)
+        ]
+        if not candidates:
+            return None
+        if self._age_since_update <= 0 and current_match is None and len(candidates) != 1:
+            return None
+
+        pred_diag = max(1.0, (predicted.w ** 2 + predicted.h ** 2) ** 0.5)
+        max_reentry_dist = max(self._reacq_radius * 1.25, self._reacq_radius + 2.0 * pred_diag)
+        if current_match is not None and current_match in candidates:
+            candidates = [current_match]
+
+        scored = []
+        for det in candidates:
+            dist = _center_distance(predicted, det)
+            if dist > max_reentry_dist:
+                continue
+            # When the current state is already prediction-only, a fresh
+            # detector measurement is more trustworthy than continuing to
+            # dead-reckon the Kalman box, even if the blended association score
+            # is weak because the old box shape/appearance no longer overlaps.
+            scored.append((det.confidence, -dist, det.area, det))
+        if not scored:
+            return None
+        scored.sort(reverse=True, key=lambda item: item[:3])
+        return scored[0][3]
 
     def _make_track(
         self,

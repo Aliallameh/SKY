@@ -63,6 +63,48 @@ def test_single_target_tracker_reacquires_near_prediction():
     assert tracks[0].status == "detected"
 
 
+def test_single_target_tracker_accepts_detector_after_stale_prediction():
+    trk = SingleTargetKalmanLKTracker(
+        min_track_length=1,
+        track_buffer_frames=8,
+        reacquisition_radius_px=80,
+        max_prediction_only_frames=3,
+        min_prediction_confidence=0.01,
+    )
+    t1 = trk.update([_det(50, 60, conf=0.75)], frame_index=0, capture_time_s=0.0, image_bgr=_frame_with_box(50, 60))[0]
+    trk.update([_det(70, 62, conf=0.75)], frame_index=1, capture_time_s=1 / 30, image_bgr=_frame_with_box(70, 62))
+    predicted = trk.update([], frame_index=2, capture_time_s=2 / 30, image_bgr=np.full((240, 320, 3), 180, dtype=np.uint8))[0]
+    assert predicted.status == "predicted"
+
+    tracks = trk.update([_det(126, 65, conf=0.24)], frame_index=3, capture_time_s=3 / 30, image_bgr=_frame_with_box(126, 65))
+
+    assert tracks[0].track_id == t1.track_id
+    assert tracks[0].time_since_update == 0
+    assert tracks[0].status == "detected"
+    assert abs(tracks[0].detection.cx - 141.0) < 35.0
+
+
+def test_single_target_tracker_stops_emitting_stale_kalman_prediction():
+    trk = SingleTargetKalmanLKTracker(
+        min_track_length=1,
+        track_buffer_frames=30,
+        max_prediction_only_frames=2,
+        min_prediction_confidence=0.05,
+    )
+    t1 = trk.update([_det(50, 60)], frame_index=0, capture_time_s=0.0, image_bgr=_frame_with_box(50, 60))[0]
+    assert t1.track_id == 1
+
+    tracks = []
+    for idx in range(1, 5):
+        tracks = trk.update([], frame_index=idx, capture_time_s=idx / 30, image_bgr=np.full((240, 320, 3), 180, dtype=np.uint8))
+
+    assert tracks == []
+    fresh = trk.update([_det(170, 100)], frame_index=5, capture_time_s=5 / 30, image_bgr=_frame_with_box(170, 100))[0]
+    assert fresh.track_id == 2
+    assert fresh.time_since_update == 0
+    assert fresh.status == "detected"
+
+
 def test_single_target_tracker_rescues_from_boundary_clutter():
     trk = SingleTargetKalmanLKTracker(min_track_length=1, reacquisition_radius_px=80)
     trk.update([_det(8, 160, w=12, h=14, conf=0.64)], frame_index=0, capture_time_s=0.0, image_bgr=_frame_with_box(8, 160, 12, 14))

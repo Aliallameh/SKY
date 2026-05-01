@@ -1,0 +1,6 @@
+{
+  "video": "data\\videos\\camera_20260423_113401.mp4",
+  "diagnostics": "data\\outputs\\run_v2_guidance_camera_20260423_113401\\diagnostics.csv",
+  "frames": 61,
+  "instructions": "Correct boxes around the drone. Set review_status=ok for usable labels, skip for ambiguous frames, and label=negative for hard-negative/no-drone frames."
+}

@@ -1,6 +1,10 @@
-# Model weights (auto-downloaded on demand)
+# Model weights.
+# Curated checkpoints in data/models/ are tracked with Git LFS so a fresh clone
+# can run trained profiles. Ad-hoc checkpoints elsewhere remain ignored.
 *.pt
 *.pth
+!data/models/**/*.pt
+!data/models/**/*.pth
 
 # Training datasets (can be rebuilt from manifest)
 data/training/airborne_yolo_v1/

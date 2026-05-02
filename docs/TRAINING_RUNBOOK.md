@@ -140,8 +140,8 @@ Do not chase 100% GPU utilization blindly. Small-object detection at high image 
 After training finishes:
 
 ```powershell
-Copy-Item "path\to\run\weights\best.pt" "data\models\yolo11s_airborne_drone_vs_bird_v2\best.pt" -Force
-Copy-Item "path\to\run\weights\last.pt" "data\models\yolo11s_airborne_drone_vs_bird_v2\last.pt" -Force
+Copy-Item "path\to\run\weights\best.pt" "data\models\yolo11s_airborne_aod4_antiuav300_v2\best.pt" -Force
+Copy-Item "path\to\run\weights\last.pt" "data\models\yolo11s_airborne_aod4_antiuav300_v2\last.pt" -Force
 git lfs status
 git status --short
 ```

@@ -1,5 +1,5 @@
 # Skyscouter Phase 1 — acceptance evaluation profile for the v2 trained
-# airborne YOLO detector (yolo11s_airborne_drone_vs_bird_v2, AOD-4 + Anti-UAV300).
+# airborne YOLO detector (yolo11s_airborne_aod4_antiuav300_v2).
 #
 # Mirrors trained_yolo11s_eval.yaml but points at the v2 weights.
 # Confidence threshold defaults to 0.25 (mission policy). For the recall
@@ -25,12 +25,12 @@ camera:
   resolution_wh: null
 
 # ---------------- Detector ----------------
-# v2 weights from training run yolo11s_airborne_drone_vs_bird_v2.
+# v2 weights promoted from historical training run yolo11s_airborne_drone_vs_bird_v2.
 # Class IDs match v1: 0=drone, 1=bird, 2=airplane, 3=helicopter.
 # (Note: data.yaml v2 may differ in class index ordering — verify if needed.)
 detector:
   backend: "yolo_ultralytics"
-  weights: "data/models/yolo11s_airborne_drone_vs_bird_v2/best.pt"
+  weights: "data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt"
   input_size: 1024
   confidence_threshold: 0.25
   iou_threshold: 0.45
@@ -38,7 +38,7 @@ detector:
   fallback_keep_high_conf: false
   fallback_high_conf_threshold: 0.35
   device: "auto"
-  model_version: "yolo11s_airborne_drone_vs_bird_v2_e80_final"
+  model_version: "yolo11s_airborne_aod4_antiuav300_v2_e80_final"
 
 # ---------------- Tracker (unchanged) ----------------
 tracker:

@@ -53,8 +53,8 @@ The important model files should appear here:
 ```text
 data/models/yolo11s_airborne_drone_vs_bird_v1/best.pt
 data/models/yolo11s_airborne_drone_vs_bird_v1/last.pt
-data/models/yolo11s_airborne_drone_vs_bird_v2/best.pt
-data/models/yolo11s_airborne_drone_vs_bird_v2/last.pt
+data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt
+data/models/yolo11s_airborne_aod4_antiuav300_v2/last.pt
 ```
 
 ### 3. Create the Python environment
@@ -130,8 +130,8 @@ The repo tracks these through Git LFS, not normal Git blobs:
 |---|---|---|
 | YOLO11s airborne v1 | `data/models/yolo11s_airborne_drone_vs_bird_v1/best.pt` | earlier trained baseline |
 | YOLO11s airborne v1 last | `data/models/yolo11s_airborne_drone_vs_bird_v1/last.pt` | resume/debug checkpoint |
-| YOLO11s airborne v2 | `data/models/yolo11s_airborne_drone_vs_bird_v2/best.pt` | current trained profile |
-| YOLO11s airborne v2 last | `data/models/yolo11s_airborne_drone_vs_bird_v2/last.pt` | resume/debug checkpoint |
+| YOLO11s AOD-4 + Anti-UAV300 v2 | `data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt` | current trained profile |
+| YOLO11s AOD-4 + Anti-UAV300 v2 last | `data/models/yolo11s_airborne_aod4_antiuav300_v2/last.pt` | resume/debug checkpoint |
 
 Why Git LFS?
 
@@ -139,11 +139,14 @@ Why Git LFS?
 - Normal Git stores every binary change forever.
 - Git LFS keeps the repo usable while still making clones reproducible.
 
-The v2 checkpoint is now the completed epoch-80 model. Its validation metrics
-are strong, but the local `camera_20260423_113401` hard-case still exposes a
-semantic error: the target is often boxed as `airplane` instead of `drone`.
-See [`docs/E80_FINAL_RESULTS.md`](docs/E80_FINAL_RESULTS.md) before treating
-the model as guidance-ready.
+The v2 checkpoint is now the completed epoch-80 AOD-4 + Anti-UAV300 model.
+The raw Ultralytics training run kept its historical name
+`yolo11s_airborne_drone_vs_bird_v2`, but the curated model folder uses the
+clearer lineage name above. Its validation metrics are strong, but the local
+`camera_20260423_113401` hard-case still exposes a semantic error: the target
+is often boxed as `airplane` instead of `drone`. See
+[`docs/E80_FINAL_RESULTS.md`](docs/E80_FINAL_RESULTS.md) before treating the
+model as guidance-ready.
 
 ---
 

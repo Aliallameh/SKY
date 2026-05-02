@@ -7,7 +7,7 @@ Last updated: 2026-05-02
 Run:
 
 ```text
-yolo11s_airborne_drone_vs_bird_v2
+yolo11s_airborne_aod4_antiuav300_v2
 ```
 
 Final validation metrics from the 80-epoch Ultralytics run:
@@ -23,13 +23,13 @@ Final validation metrics from the 80-epoch Ultralytics run:
 The final `best.pt` and `last.pt` were promoted to:
 
 ```text
-data/models/yolo11s_airborne_drone_vs_bird_v2/
+data/models/yolo11s_airborne_aod4_antiuav300_v2/
 ```
 
 Configs now identify this checkpoint as:
 
 ```text
-yolo11s_airborne_drone_vs_bird_v2_e80_final
+yolo11s_airborne_aod4_antiuav300_v2_e80_final
 ```
 
 ## Hard-Case Result
@@ -62,6 +62,9 @@ At diagnostic threshold `conf=0.01`:
 
 Interpretation:
 
+- The raw Ultralytics training run kept its historical name
+  `yolo11s_airborne_drone_vs_bird_v2`; the promoted model uses
+  `yolo11s_airborne_aod4_antiuav300_v2` to make the data lineage explicit.
 - The model often sees the object as an airborne target.
 - It usually classifies this local drone as `airplane`, not `drone`.
 - Frames `96-105` remain true hard misses even at very low confidence.
@@ -94,6 +97,6 @@ Recommended v3:
 
 1. Add the strict `camera_20260423_113401` corrected packet as drone-positive and hard-negative training data.
 2. Include nearby frames around `96-105`, not just the current sparse boxes.
-3. Fine-tune from `data/models/yolo11s_airborne_drone_vs_bird_v2/best.pt`, not from COCO.
+3. Fine-tune from `data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt`, not from COCO.
 4. Keep this same packet as a named regression slice and report both geometric hit rate and semantic drone hit rate.
 5. Only after semantic drone recall improves should tracker thresholds be relaxed.

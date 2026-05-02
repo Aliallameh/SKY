@@ -20,7 +20,7 @@ camera:
 
 detector:
   backend: "yolo_ultralytics"
-  weights: "data/models/yolo11s_airborne_drone_vs_bird_v2/best.pt"
+  weights: "data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt"
   input_size: 1024
   confidence_threshold: 0.25
   iou_threshold: 0.45
@@ -28,7 +28,7 @@ detector:
   fallback_keep_high_conf: false
   fallback_high_conf_threshold: 0.35
   device: "auto"
-  model_version: "yolo11s_airborne_drone_vs_bird_v2_e80_final"
+  model_version: "yolo11s_airborne_aod4_antiuav300_v2_e80_final"
 
 tracker:
   backend: "single_target_kalman_lk"

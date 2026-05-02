@@ -57,7 +57,8 @@ Lock-state responsibility:
 
 - Run: `data/outputs/run_v2_eval_trackerfix/`
 - Config: `configs/trained_yolo11s_v2_eval.yaml`
-- Detector: `yolo11s_airborne_drone_vs_bird_v2` (epoch 80 / 80 final)
+- Detector: `yolo11s_airborne_aod4_antiuav300_v2` (epoch 80 / 80 final,
+  promoted from historical run `yolo11s_airborne_drone_vs_bird_v2`)
 - GT file: corrected sparse GT (44 positive drone frames + 45 hard negatives)
 - Frames processed: 9,744
 - Matched positive rate: **0.977** (43/44)
@@ -150,7 +151,7 @@ discrimination.
   - device auto-detect: CUDA → MPS → CPU.
 
 - `scripts/resume_yolo_v2_training.ps1`
-  - resumes the current `yolo11s_airborne_drone_vs_bird_v2` checkpoint;
+  - resumes the historical `yolo11s_airborne_drone_vs_bird_v2` checkpoint;
   - auto-locates the training root under the repo or `.claude/worktrees`;
   - defaults to `-Workers 8` for full-speed GPU feeding;
   - use `-Workers 0` only as a slow fallback if Windows dataloader workers

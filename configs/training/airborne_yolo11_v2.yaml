@@ -1,5 +1,5 @@
 schema_version: "skyscout.airborne_training.v1"
-profile_name: "yolo11s_airborne_drone_vs_bird_v2"
+profile_name: "yolo11s_airborne_aod4_antiuav300_v2"
 
 # v2 — AOD-4 + Anti-UAV300 RGB expanded training dataset.
 # Added ~9.6K drone frames from Anti-UAV300 (60 positives/seq × 160 train seqs)
@@ -25,7 +25,7 @@ training:
   workers: 8
   device: "auto"
   project: "data/training/runs"
-  run_name: "yolo11s_airborne_drone_vs_bird_v2"
+  run_name: "yolo11s_airborne_aod4_antiuav300_v2"
   optimizer: "auto"
   close_mosaic: 10
   seed: 42

@@ -10,7 +10,7 @@ data/models/
   yolo11s_airborne_drone_vs_bird_v1/
     best.pt
     last.pt
-  yolo11s_airborne_drone_vs_bird_v2/
+  yolo11s_airborne_aod4_antiuav300_v2/
     best.pt
     last.pt
 ```
@@ -25,7 +25,8 @@ here.
 
 Current v2 final checkpoint:
 
-- run: `yolo11s_airborne_drone_vs_bird_v2`
+- curated model: `yolo11s_airborne_aod4_antiuav300_v2`
+- historical training run: `yolo11s_airborne_drone_vs_bird_v2`
 - epochs: 80
 - validation: `mAP50=0.979`, `mAP50-95=0.693`
 - drone class: `P=0.986`, `R=0.966`, `mAP50=0.990`, `mAP50-95=0.683`

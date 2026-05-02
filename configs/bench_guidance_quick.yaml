@@ -28,7 +28,7 @@ detector:
   fallback_keep_high_conf: false
   fallback_high_conf_threshold: 0.35
   device: "auto"
-  model_version: "yolo11s_airborne_drone_vs_bird_v2_e31_partial"
+  model_version: "yolo11s_airborne_drone_vs_bird_v2_e80_final"
 
 tracker:
   backend: "single_target_kalman_lk"

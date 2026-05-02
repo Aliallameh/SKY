@@ -34,6 +34,8 @@ __pycache__/
 *.pyo
 *.egg-info/
 .pytest_cache/
+.tmp_pytest/
+.pytest_tmp_run/
 
 # IDE
 .vscode/
@@ -48,4 +50,5 @@ Ultralytics/
 
 # Environment
 .venv/
+.venv_train/
 venv/

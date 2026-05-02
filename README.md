@@ -71,6 +71,18 @@ If `py -3.12` is not available, use your installed Python:
 python -m venv .venv
 ```
 
+For long training runs on Ali's Windows workstation, prefer a dedicated
+training environment so it is obvious which Python owns CUDA:
+
+```powershell
+py -3.12 -m venv .venv_train
+.\.venv_train\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+.\.venv_train\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv_train\Scripts\python.exe -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no cuda')"
+```
+
+Expected: `True` and your NVIDIA GPU name.
+
 ### 4. Use a local Ultralytics settings folder
 
 On some Windows machines, Ultralytics may try to read a blocked roaming profile path. Set this once per terminal:
@@ -126,6 +138,12 @@ Why Git LFS?
 - Model weights are large binary files.
 - Normal Git stores every binary change forever.
 - Git LFS keeps the repo usable while still making clones reproducible.
+
+The v2 checkpoint is now the completed epoch-80 model. Its validation metrics
+are strong, but the local `camera_20260423_113401` hard-case still exposes a
+semantic error: the target is often boxed as `airplane` instead of `drone`.
+See [`docs/E80_FINAL_RESULTS.md`](docs/E80_FINAL_RESULTS.md) before treating
+the model as guidance-ready.
 
 ---
 
@@ -214,6 +232,18 @@ Train:
   --config configs/training/airborne_yolo11.yaml
 ```
 
+For the dedicated training env:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts/train_airborne_yolo.py `
+  --config configs/training/airborne_yolo11.yaml `
+  --workers 8 `
+  --batch 8
+```
+
+On an RTX 5070 Ti, if VRAM usage is low and the run is stable, test
+`--batch 12` and then `--batch 16`. If CUDA runs out of memory, go back down.
+
 Training runs land under:
 
 ```text
@@ -227,6 +257,25 @@ data/models/
 ```
 
 Then commit them with Git LFS.
+
+Resume the current v2 run from an Administrator PowerShell:
+
+```powershell
+cd "C:\Users\Ali\Desktop\SKY"
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\resume_yolo_v2_training.ps1" -Workers 8
+```
+
+If Windows dataloader workers fail, use `-Workers 0` only as the slow fallback.
+Full notes are in [`docs/TRAINING_RUNBOOK.md`](docs/TRAINING_RUNBOOK.md).
+
+Monitor training with:
+
+```powershell
+nvidia-smi -l 5
+```
+
+Task Manager's default GPU graph often shows 3D/video engines, not CUDA
+compute, so it can under-report ML utilization.
 
 ---
 

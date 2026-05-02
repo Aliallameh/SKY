@@ -17,6 +17,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--epochs", type=int, default=None)
     p.add_argument("--batch", type=int, default=None)
     p.add_argument("--imgsz", type=int, default=None)
+    p.add_argument("--workers", type=int, default=None)
+    p.add_argument("--cache", choices=["ram", "disk", "false"], default=None)
+    p.add_argument("--amp", choices=["true", "false"], default=None)
     return p.parse_args()
 
 
@@ -60,13 +63,19 @@ def main() -> int:
         "epochs": args.epochs or int(train_cfg.get("epochs", 80)),
         "batch": args.batch or int(train_cfg.get("batch", 8)),
         "patience": int(train_cfg.get("patience", 20)),
-        "workers": int(train_cfg.get("workers", 4)),
+        "workers": args.workers if args.workers is not None else int(train_cfg.get("workers", 4)),
         "project": str(project_path),
         "name": str(train_cfg.get("run_name", "yolo11s_airborne_drone_vs_bird_v1")),
         "optimizer": train_cfg.get("optimizer", "auto"),
         "close_mosaic": int(train_cfg.get("close_mosaic", 10)),
         "seed": int(train_cfg.get("seed", 42)),
+        "cache": train_cfg.get("cache", False),
+        "amp": bool(train_cfg.get("amp", True)),
     }
+    if args.cache is not None:
+        train_args["cache"] = False if args.cache == "false" else args.cache
+    if args.amp is not None:
+        train_args["amp"] = args.amp == "true"
     device = args.device or train_cfg.get("device")
     if device and device != "auto":
         train_args["device"] = device

@@ -1,6 +1,6 @@
 # ML Training and Handoff Notes
 
-Last updated: 2026-04-30
+Last updated: 2026-05-01
 
 ## Mission Model
 
@@ -44,6 +44,10 @@ Lock-state responsibility:
 - `scripts/train_airborne_yolo.py` with CUDA / MPS / CPU auto-detect, AMP,
   and absolute-path resolution of the `project` arg (avoids the Ultralytics
   8.4 nested-output quirk).
+- `docs/TRAINING_RUNBOOK.md` documents Windows/NVIDIA setup, resume,
+  monitoring, and GPU utilization tuning.
+- `docs/E80_FINAL_RESULTS.md` records the completed epoch-80 checkpoint,
+  hard-case semantic failure, and next v3 fine-tuning direction.
 - Trained-detector eval profile in `configs/trained_yolo11s_eval.yaml`.
 - Diagnostic: `scripts/extract_miss_highlights.py` renders a slow-motion
   reel + JPEGs of every positive frame the trained detector missed, with
@@ -53,7 +57,7 @@ Lock-state responsibility:
 
 - Run: `data/outputs/run_v2_eval_trackerfix/`
 - Config: `configs/trained_yolo11s_v2_eval.yaml`
-- Detector: `yolo11s_airborne_drone_vs_bird_v2` (epoch 31 / 80, partial)
+- Detector: `yolo11s_airborne_drone_vs_bird_v2` (epoch 80 / 80 final)
 - GT file: corrected sparse GT (44 positive drone frames + 45 hard negatives)
 - Frames processed: 9,744
 - Matched positive rate: **0.977** (43/44)
@@ -142,7 +146,15 @@ discrimination.
   - resolves the YAML `project` value to an absolute path before passing it
     to Ultralytics (otherwise 8.4.x nests the run under its default
     `runs/detect/`, producing surprising paths);
+  - forwards `workers`, `batch`, `cache`, and `amp` to Ultralytics;
   - device auto-detect: CUDA → MPS → CPU.
+
+- `scripts/resume_yolo_v2_training.ps1`
+  - resumes the current `yolo11s_airborne_drone_vs_bird_v2` checkpoint;
+  - auto-locates the training root under the repo or `.claude/worktrees`;
+  - defaults to `-Workers 8` for full-speed GPU feeding;
+  - use `-Workers 0` only as a slow fallback if Windows dataloader workers
+    fail.
 
 - `scripts/extract_miss_highlights.py`
   - reads the eval report, finds every missed positive frame, and renders
@@ -186,11 +198,42 @@ Train:
   --config configs/training/airborne_yolo11.yaml
 ```
 
+Train with the dedicated training environment:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts/train_airborne_yolo.py `
+  --config configs/training/airborne_yolo11.yaml `
+  --workers 8 `
+  --batch 8
+```
+
 Resume an interrupted run from `last.pt`:
 
 ```powershell
 .\.venv\Scripts\python.exe -c "from ultralytics import YOLO; YOLO(r'data\training\runs\yolo11s_airborne_drone_vs_bird_v1\weights\last.pt').train(resume=True)"
 ```
+
+Resume the current v2 run on Ali's Windows workstation:
+
+```powershell
+cd "C:\Users\Ali\Desktop\SKY"
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\resume_yolo_v2_training.ps1" -Workers 8
+```
+
+If Windows blocks dataloader multiprocessing, run the same command with
+`-Workers 0`. That is a stability mode, not the performance target.
+
+Monitor with:
+
+```powershell
+nvidia-smi -l 5
+```
+
+Task Manager can under-report CUDA training because its default graph often
+shows 3D/video engines. For this project, trust YOLO's `CUDA:0` startup line,
+the `nvidia-smi` process table, GPU memory, and batch throughput. If VRAM is
+low on a 16 GB card and utilization is low, increase dataloader workers first,
+then test larger batch sizes (`12`, then `16`) if memory allows.
 
 Evaluate the trained detector with corrected GT:
 
@@ -217,10 +260,10 @@ plus a tracker stale-state reacquisition fix closes the acceptance gate on
 
 The remaining items below are forward-looking and not gate blockers:
 
-1. **Resume v2 training to epoch 80** *(low priority — gate already passes
-   at epoch 31).* Val curve was still climbing when the host rebooted.
-   Marginal mAP improvement expected; unlikely to recover the one
-   remaining detector-blind miss (frame 405) without more data.
+1. **Validate the final v2 epoch-80 checkpoint on mission video.** Training is
+   complete: validation `mAP50=0.979`, `mAP50-95=0.693`; drone class
+   `P=0.986`, `R=0.966`, `mAP50=0.990`, `mAP50-95=0.683`. The next decision
+   must come from replay/eval on hard local videos, not from training mAP.
 2. **Frame 405 coverage**: this frame is true detector blindness even at
    conf ≥ 0.01. Recoverable only with additional long-range / small-pixel
    drone training data. See item 4.

@@ -18,6 +18,9 @@ training:
   epochs: 80
   batch: 8
   patience: 20
+  # Keep workers > 0 for real GPU utilization. On Windows, run from an
+  # Administrator PowerShell if dataloader worker startup fails; use workers 0
+  # only as a slow stability fallback.
   workers: 8
   device: "auto"
   project: "data/training/runs"

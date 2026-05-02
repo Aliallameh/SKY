@@ -1,5 +1,5 @@
 # Full-video replay with the trained v2 airborne detector and visual guidance overlay.
-# This uses the checkpoint currently present in the Claude worktree.
+# This uses the curated final v2 checkpoint in data/models.
 
 schema_version: "skyscout.config.v1"
 profile_name: "trained_yolo11s_airborne_v2_guidance_full"
@@ -30,7 +30,7 @@ detector:
   fallback_keep_high_conf: false
   fallback_high_conf_threshold: 0.35
   device: "auto"
-  model_version: "yolo11s_airborne_drone_vs_bird_v2_e31_partial"
+  model_version: "yolo11s_airborne_drone_vs_bird_v2_e80_final"
 
 tracker:
   backend: "single_target_kalman_lk"

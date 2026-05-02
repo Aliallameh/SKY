@@ -37,6 +37,8 @@ from skyscouter.utils.config_loader import load_config  # noqa: E402
 
 
 BBox = Tuple[float, float, float, float]
+POSITIVE_LABELS = {"drone", "uas", "airborne_candidate"}
+NEGATIVE_LABELS = {"negative", "hard_negative", "no_drone", "background"}
 
 
 @dataclass
@@ -50,11 +52,11 @@ class GtRow:
 
     @property
     def is_positive(self) -> bool:
-        return self.label in {"drone", "uas", "airborne_candidate"}
+        return self.label in POSITIVE_LABELS
 
     @property
     def is_negative(self) -> bool:
-        return self.label in {"negative", "hard_negative", "no_drone", "background"}
+        return self.label in NEGATIVE_LABELS
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,6 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--detector-iou-hit", type=float, default=0.10)
     parser.add_argument("--tracker-iou-hit", type=float, default=0.10)
     parser.add_argument("--center-hit-px", type=float, default=35.0)
+    parser.add_argument("--confidence-threshold", type=float, default=None, help="Override detector confidence threshold")
     parser.add_argument("--no-copy-images", action="store_true", help="Write labels only; do not copy images")
     return parser.parse_args()
 
@@ -275,14 +278,18 @@ def write_summary_md(path: Path, case_name: str, report: Dict[str, Any]) -> None
         f"- Positive drone frames: {report['positive_frames']}",
         f"- Negative frames: {report['negative_frames']}",
         f"- Detector hits: {report['detector']['hit_frames']} / {report['positive_frames']} ({report['detector']['hit_rate']:.1%})",
+        f"- Detector semantic drone hits: {report['detector']['semantic_hit_frames']} / {report['positive_frames']} ({report['detector']['semantic_hit_rate']:.1%})",
         f"- Tracker hits: {report['tracker']['hit_frames']} / {report['positive_frames']} ({report['tracker']['hit_rate']:.1%})",
+        f"- Tracker semantic drone hits: {report['tracker']['semantic_hit_frames']} / {report['positive_frames']} ({report['tracker']['semantic_hit_rate']:.1%})",
         f"- Tracker stale frames: {len(report['tracker']['stale_frames'])}",
         f"- Negative false positives: {len(report['tracker']['negative_false_positive_frames'])}",
         "",
         "## Key Frames",
         "",
         f"- Detector miss frames: {format_frame_list(report['detector']['miss_frames'])}",
+        f"- Detector semantic miss frames: {format_frame_list(report['detector']['semantic_miss_frames'])}",
         f"- Tracker bad frames: {format_frame_list(report['tracker']['bad_frames'])}",
+        f"- Tracker semantic bad frames: {format_frame_list(report['tracker']['semantic_bad_frames'])}",
         f"- Stale tracker frames: {format_frame_list(report['tracker']['stale_frames'])}",
         f"- Negative false positive frames: {format_frame_list(report['tracker']['negative_false_positive_frames'])}",
         "",
@@ -293,6 +300,8 @@ def write_summary_md(path: Path, case_name: str, report: Dict[str, Any]) -> None
         lines.append("- Detector recall is the first bottleneck on this clip; add more turn/reversal samples before expecting the tracker to be stable.")
     else:
         lines.append("- Detector recall is acceptable on this hard case; tracker gating and stale-state behavior become the main area to tune.")
+    if report["detector"]["semantic_hit_rate"] < report["detector"]["hit_rate"]:
+        lines.append("- Some geometrically-correct boxes have the wrong class label; treat semantic drone recall as the safety-relevant detector metric.")
     if report["tracker"]["stale_frames"]:
         lines.append("- Tracker still emits prediction-only boxes on one or more reviewed frames; stale emission limits should stay strict.")
     if report["tracker"]["negative_false_positive_frames"]:
@@ -325,6 +334,9 @@ def main() -> int:
     yolo_info = export_yolo_dataset(rows, packet_dir, output_dir, copy_images=not args.no_copy_images)
 
     cfg = load_config(args.config)
+    if args.confidence_threshold is not None:
+        cfg.setdefault("detector", {})
+        cfg["detector"]["confidence_threshold"] = float(args.confidence_threshold)
     detector = build_detector(cfg["detector"])
     tracker = build_tracker(cfg["tracker"])
     detector.warmup()
@@ -362,6 +374,8 @@ def main() -> int:
 
         det_hit = row.is_positive and is_hit(det_iou, det_cerr, args.detector_iou_hit, args.center_hit_px)
         track_hit = row.is_positive and is_hit(track_iou, track_cerr, args.tracker_iou_hit, args.center_hit_px)
+        det_semantic_hit = bool(det_hit and det_best is not None and det_best.class_label in POSITIVE_LABELS)
+        track_semantic_hit = bool(track_hit and primary is not None and primary.detection.class_label in POSITIVE_LABELS)
         stale = bool(primary is not None and (primary.time_since_update > 0 or not primary.matched_detection))
         negative_fp = bool(row.is_negative and primary is not None)
 
@@ -380,23 +394,28 @@ def main() -> int:
                 "det_best_iou": safe_float(det_iou),
                 "det_center_error_px": safe_float(det_cerr),
                 "det_hit": int(det_hit),
+                "det_semantic_hit": int(det_semantic_hit),
                 "track_id": "" if primary is None else primary.track_id,
                 "track_status": "" if primary is None else primary.status,
                 "track_source": "" if primary is None else primary.source,
+                "track_class": "" if primary is None else primary.detection.class_label,
                 "track_conf": "" if primary is None else safe_float(primary.detection.confidence),
                 "track_time_since_update": "" if primary is None else primary.time_since_update,
                 "track_iou": safe_float(track_iou),
                 "track_center_error_px": safe_float(track_cerr),
                 "track_hit": int(track_hit),
+                "track_semantic_hit": int(track_semantic_hit),
                 "tracker_stale": int(stale),
                 "negative_false_positive": int(negative_fp),
             }
         )
 
-    positives = [r for r in per_frame if r["gt_label"] in {"drone", "uas", "airborne_candidate"}]
-    negatives = [r for r in per_frame if r["gt_label"] in {"negative", "hard_negative", "no_drone", "background"}]
+    positives = [r for r in per_frame if r["gt_label"] in POSITIVE_LABELS]
+    negatives = [r for r in per_frame if r["gt_label"] in NEGATIVE_LABELS]
     detector_miss_frames = [int(r["frame_id"]) for r in positives if int(r["det_hit"]) == 0]
+    detector_semantic_miss_frames = [int(r["frame_id"]) for r in positives if int(r["det_semantic_hit"]) == 0]
     tracker_bad_frames = [int(r["frame_id"]) for r in positives if int(r["track_hit"]) == 0]
+    tracker_semantic_bad_frames = [int(r["frame_id"]) for r in positives if int(r["track_semantic_hit"]) == 0]
     stale_frames = [int(r["frame_id"]) for r in per_frame if int(r["tracker_stale"]) == 1]
     negative_fp_frames = [int(r["frame_id"]) for r in negatives if int(r["negative_false_positive"]) == 1]
 
@@ -417,14 +436,20 @@ def main() -> int:
         "detector": {
             "hit_frames": sum(int(r["det_hit"]) for r in positives),
             "hit_rate": sum(int(r["det_hit"]) for r in positives) / max(1, len(positives)),
+            "semantic_hit_frames": sum(int(r["det_semantic_hit"]) for r in positives),
+            "semantic_hit_rate": sum(int(r["det_semantic_hit"]) for r in positives) / max(1, len(positives)),
             "miss_frames": detector_miss_frames,
+            "semantic_miss_frames": detector_semantic_miss_frames,
             "center_error_px": summarize(float_or_none(r["det_center_error_px"]) for r in positives),
             "iou": summarize(float_or_none(r["det_best_iou"]) for r in positives),
         },
         "tracker": {
             "hit_frames": sum(int(r["track_hit"]) for r in positives),
             "hit_rate": sum(int(r["track_hit"]) for r in positives) / max(1, len(positives)),
+            "semantic_hit_frames": sum(int(r["track_semantic_hit"]) for r in positives),
+            "semantic_hit_rate": sum(int(r["track_semantic_hit"]) for r in positives) / max(1, len(positives)),
             "bad_frames": tracker_bad_frames,
+            "semantic_bad_frames": tracker_semantic_bad_frames,
             "stale_frames": stale_frames,
             "negative_false_positive_frames": negative_fp_frames,
             "center_error_px": summarize(float_or_none(r["track_center_error_px"]) for r in positives),
@@ -440,9 +465,13 @@ def main() -> int:
         "output": str(output_dir),
         "frames": report["frames"],
         "detector_hit_rate": report["detector"]["hit_rate"],
+        "detector_semantic_hit_rate": report["detector"]["semantic_hit_rate"],
         "tracker_hit_rate": report["tracker"]["hit_rate"],
+        "tracker_semantic_hit_rate": report["tracker"]["semantic_hit_rate"],
         "detector_miss_frames": detector_miss_frames,
+        "detector_semantic_miss_frames": detector_semantic_miss_frames,
         "tracker_bad_frames": tracker_bad_frames,
+        "tracker_semantic_bad_frames": tracker_semantic_bad_frames,
         "stale_frames": stale_frames,
         "negative_false_positive_frames": negative_fp_frames,
     }, indent=2))

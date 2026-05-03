@@ -67,14 +67,24 @@ Exactly the PRD G3 deliverable, minus live cue (cue is simulated for now).
   marking hard negatives.
 - [x] T1.0b: Dataset manifest and YOLO training-set builder for airborne
   drone-vs-bird detector training.
-- [ ] T1.1: Obtain/normalize airborne datasets: AOD-4 first, then
-  Drone-vs-Bird, then LRDDv2 if access is available.
-- [ ] T1.2: Train YOLO11s airborne detector with classes
-  `drone,bird,airplane,helicopter,unknown_airborne`.
-- [ ] T1.3: Wire trained detector weights into `yolo_ultralytics` config and
-  replay against corrected sparse GT.
+- [x] T1.1: Obtain/normalize airborne datasets: AOD-4 (done) + Anti-UAV300
+  RGB (done). Drone-vs-Bird and LRDDv2 are still placeholders in manifest.
+- [x] T1.2: Train YOLO11s airborne detector with classes
+  `drone,bird,airplane,helicopter` — v1 (35 ep, AOD-4) and v2 (80 ep,
+  AOD-4 + Anti-UAV300, mAP50=0.979) both shipped in `data/models/`.
+- [x] T1.3: Wired v2 weights into `yolo_ultralytics` config; replayed
+  against corrected sparse GT — acceptance gate passes (0.977 positive
+  rate). Hard-case semantic failure documented in `docs/E80_FINAL_RESULTS.md`.
+- [ ] T1.3a: **V3 domain-adaptation fine-tune** — fine-tune from v2 best.pt
+  using local corrected annotation packet to fix `airplane`-vs-`drone`
+  misclassification on mission footage. Full plan in
+  `docs/ML_TRAINING_AND_HANDOFF.md` under "Immediate: V3 Domain-Adaptation
+  Fine-tune". Target: semantic drone hit rate ≥ 50 % at conf=0.25 on the
+  hard-case packet (currently 1.9 %).
 - [ ] T1.4: Tighten lock semantics so `guidance_valid=true` requires semantic
   drone confidence and cannot stay true on known hard-negative clutter.
+  Blocked on T1.3a — confidence signal is not meaningful until semantic
+  classification is corrected.
 - [ ] T1.5: Cue adapter + cue simulator (PRD FR-CUE-005)
 - [ ] T1.6: Kinematic feature extractor on tracks (PRD FR-DISC-001)
 - [ ] T1.7: Confidence calibration (FR-DET-002)

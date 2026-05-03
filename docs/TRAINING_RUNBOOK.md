@@ -117,7 +117,7 @@ nvidia-smi -l 5
 Check YOLO progress logs:
 
 ```powershell
-Get-ChildItem "C:\Users\Ali\Desktop\SKY\.claude\worktrees\naughty-driscoll-0c6ce9\data\training\runs\yolo11s_airborne_drone_vs_bird_v2" -Filter "resume_training_*.log" |
+Get-ChildItem "C:\Users\Ali\Desktop\SKY\data\training\runs" -Recurse -Filter "resume_training_*.log" |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1 |
   Get-Content -Tail 60 -Wait

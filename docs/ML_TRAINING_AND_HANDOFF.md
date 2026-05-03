@@ -254,6 +254,15 @@ Render a miss-frame diagnostic reel after an eval run:
 
 ## Next Engineering Steps
 
+### Flight-test handoff
+
+The Jetson/USB-camera deployment sequence is tracked in
+[`MVP_FLIGHT_TEST_DEPLOYMENT_PLAN.md`](MVP_FLIGHT_TEST_DEPLOYMENT_PLAN.md).
+That plan is the source of truth for calibration, TensorRT export, live USB
+capture, and log-only shadow flights. The v3 fine-tune below improves detector
+semantics, but it does not by itself make the stack safe for MAVLink or ESP32
+command output.
+
 ### Immediate: V3 Domain-Adaptation Fine-tune
 
 **Problem diagnosed (2026-05-02):**

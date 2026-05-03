@@ -98,14 +98,22 @@ Exactly the PRD G3 deliverable, minus live cue (cue is simulated for now).
   fault, and yaw-limit gates. No MAVLink or network transport.
 
 ### Sprint 2 — Edge readiness
-- T2.1: TensorRT export path
-- T2.2: Latency stack-up measurement harness
-- T2.3: Compute bake-off scripts (Orin / Orange Pi / RDK X5)
+- T2.0: **MVP flight-test deployment plan** — USB camera, calibration,
+  Jetson, TensorRT, and log-only shadow testing. See
+  `docs/MVP_FLIGHT_TEST_DEPLOYMENT_PLAN.md`.
+- T2.1: Camera calibration tooling for the actual USB capture camera.
+- T2.2: Live USB camera frame source and record-only mode.
+- T2.3: TensorRT export path on Jetson Orin Nano Super.
+- T2.4: Latency stack-up measurement harness.
+- T2.5: Compute benchmark script for Jetson live camera and replay clips.
 
 ### Sprint 3 — Integration
-- T3.1: MAVLink bridge (mock + real)
-- T3.2: Operator HMI (minimum, web-based)
-- T3.3: IMU ingestion path (real ego-motion compensation)
+- T3.1: Read-only flight-controller telemetry logging after log-only camera
+  tests are stable.
+- T3.2: MAVLink bridge design only after reviewed calibration, Jetson
+  latency, semantic drone recall, and safety gates pass.
+- T3.3: Operator HMI (minimum, web-based)
+- T3.4: IMU ingestion path (real ego-motion compensation)
 
 ### Sprint 4 — Hardening
 - T4.1: Fault injection test suite
@@ -145,6 +153,10 @@ These are committed; see PRD v3.2 §21.
 - **Mock bridge is audit-only.** It can mark rows `valid_for_transport` for
   simulator review only after calibration is explicitly reviewed; it still does
   not actuate a vehicle or publish MAVLink.
+- **Flight MVP plan is log-only first.** Real-air testing starts with USB
+  camera capture, calibrated guidance logs, and post-flight evaluation. Command
+  output to FC/ESP32 is explicitly out of scope until the gates in
+  `docs/MVP_FLIGHT_TEST_DEPLOYMENT_PLAN.md` pass.
 
 ## What "no cheating" means in this codebase
 
@@ -178,3 +190,7 @@ python scripts/run_pipeline.py \
 
 See `docs/ML_TRAINING_AND_HANDOFF.md` for the active ML plan, corrected-GT
 metrics, dataset selection rationale, training commands, and remaining work.
+
+See `docs/MVP_FLIGHT_TEST_DEPLOYMENT_PLAN.md` for the Jetson/USB-camera
+deployment sequence, calibration gate, log-only flight-test mode, and open
+hardware questions.

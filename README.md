@@ -296,6 +296,7 @@ compute, so it can under-report ML utilization.
 | `scripts/evaluate_hard_case.py` | Detector/tracker hard-case scorer |
 | `scripts/prepare_drone_annotations.py` | Frame extraction + browser annotation UI |
 | `scripts/train_airborne_yolo.py` | YOLO training wrapper |
+| `docs/MVP_FLIGHT_TEST_DEPLOYMENT_PLAN.md` | Jetson USB-camera deployment and log-only flight-test plan |
 | `tests/` | Regression tests |
 
 ---

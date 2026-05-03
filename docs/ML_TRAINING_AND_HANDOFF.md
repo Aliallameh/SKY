@@ -1,6 +1,6 @@
 # ML Training and Handoff Notes
 
-Last updated: 2026-05-01
+Last updated: 2026-05-02
 
 ## Mission Model
 
@@ -168,7 +168,7 @@ discrimination.
 Build the local sparse-GT sanity dataset only:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/prepare_airborne_training_set.py `
+.\.venv_train\Scripts\python.exe scripts/prepare_airborne_training_set.py `
   --manifest configs/training/airborne_dataset_manifest.yaml `
   --out-dir data/training/local_sparse_gt_yolo `
   --source local_my_drone_chase_sparse_gt `
@@ -178,7 +178,7 @@ Build the local sparse-GT sanity dataset only:
 Build the real training set (AOD-4 + local sparse GT):
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/prepare_airborne_training_set.py `
+.\.venv_train\Scripts\python.exe scripts/prepare_airborne_training_set.py `
   --manifest configs/training/airborne_dataset_manifest.yaml `
   --out-dir data/training/airborne_yolo_v1 `
   --link-mode copy
@@ -195,7 +195,7 @@ Observed on 2026-04-29 (AOD-4 + local sparse GT):
 Train:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/train_airborne_yolo.py `
+.\.venv_train\Scripts\python.exe scripts/train_airborne_yolo.py `
   --config configs/training/airborne_yolo11.yaml
 ```
 
@@ -211,7 +211,7 @@ Train with the dedicated training environment:
 Resume an interrupted run from `last.pt`:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "from ultralytics import YOLO; YOLO(r'data\training\runs\yolo11s_airborne_drone_vs_bird_v1\weights\last.pt').train(resume=True)"
+.\.venv_train\Scripts\python.exe -c "from ultralytics import YOLO; YOLO(r'data\training\runs\yolo11s_airborne_drone_vs_bird_v1\weights\last.pt').train(resume=True)"
 ```
 
 Resume the current v2 run on Ali's Windows workstation:
@@ -239,7 +239,7 @@ then test larger batch sizes (`12`, then `16`) if memory allows.
 Evaluate the trained detector with corrected GT:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/run_pipeline.py `
+.\.venv_train\Scripts\python.exe scripts/run_pipeline.py `
   --video data/videos/my_drone_chase.MP4 `
   --config configs/trained_yolo11s_eval.yaml `
   --gt path\to\drone_sparse_gt_corrected.csv `
@@ -249,36 +249,138 @@ Evaluate the trained detector with corrected GT:
 Render a miss-frame diagnostic reel after an eval run:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/extract_miss_highlights.py
+.\.venv_train\Scripts\python.exe scripts/extract_miss_highlights.py
 ```
 
 ## Next Engineering Steps
 
-The original v1 next-step list has been resolved. v2 (AOD-4 + Anti-UAV300)
-plus a tracker stale-state reacquisition fix closes the acceptance gate on
-`my_drone_chase.MP4` at matched positive rate 0.977. Detail in
-[`PHASE_1_RESULTS.md`](PHASE_1_RESULTS.md).
+### Immediate: V3 Domain-Adaptation Fine-tune
 
-The remaining items below are forward-looking and not gate blockers:
+**Problem diagnosed (2026-05-02):**
+The v2 model passes the acceptance gate on `my_drone_chase.MP4` at the
+geometric level, but replay on a new video showed the drone is consistently
+labelled `airplane`, not `drone`. The hard-case eval confirms this:
 
-1. **Validate the final v2 epoch-80 checkpoint on mission video.** Training is
-   complete: validation `mAP50=0.979`, `mAP50-95=0.693`; drone class
-   `P=0.986`, `R=0.966`, `mAP50=0.990`, `mAP50-95=0.683`. The next decision
-   must come from replay/eval on hard local videos, not from training mAP.
-2. **Frame 405 coverage**: this frame is true detector blindness even at
-   conf ≥ 0.01. Recoverable only with additional long-range / small-pixel
-   drone training data. See item 4.
-3. **Obtain LRDDv2** (or equivalent long-range drone) data and enable the
-   `lrddv2_long_range_drone` source in the manifest. Targets the same
-   pixel-tiny regime as frame 405.
-4. **Tracker regression set**: capture the 6 previously-failing tracker
-   miss frames (6000, 6120, 6300, 6495, 6675, plus context) as a unit
-   test against any future tracker change.
-5. **Tighten lock semantics** so `guidance_valid=true` requires semantic
-   drone confidence ≥ a calibrated threshold, not just label match.
-6. **Confidence calibration** on validation set (Brier / temperature
-   scaling) — would tighten the link between detector confidence and
-   downstream lock-quality scoring.
+- Geometric detector hit rate at conf=0.25: **42.6 %** (box lands on target)
+- Semantic drone hit rate at conf=0.25: **1.9 %** (box lands on target AND
+  class = drone)
+
+The model sees the object. It just calls it the wrong class. The cause is a
+domain gap: at medium-to-long range, a multirotor quadcopter is a small dark
+blob against sky — visually indistinguishable from small fixed-wing aircraft
+in the AOD-4 training distribution. The model has never seen *this specific
+drone*, in *this lighting and range*, labelled as `drone`.
+
+**Fix: fine-tune on local annotated data.**
+
+The corrected annotation packet already contains the evidence the model needs:
+
+```
+annotations/camera_20260423_113401_turn_review_strict/drone_sparse_gt_corrected.csv
+```
+
+#### Step 1 — Prepare the fine-tune dataset
+
+Add a new source entry `camera_hard_case_corrected_gt` to the dataset
+manifest pointing at the corrected CSV + video. The dataset builder already
+supports the `skyscouter_sparse_gt_video` source type which reads this format.
+
+Extract two groups:
+- **Drone-positive frames** — rows where `label=drone`; convert pixel boxes
+  to YOLO class 0 (drone).
+- **Hard-negative frames** — rows where `label=negative`; write empty label
+  files (background images, no objects).
+
+This yields ~54 high-value domain-specific frames.
+
+Mix with ~2 000 randomly sampled frames from the existing v2 training set
+(AOD-4 + Anti-UAV300) to prevent catastrophic forgetting of birds,
+helicopters, and generic airplanes. Target mix ratio roughly 1:40
+(hard-case : existing). Output dir: `data/training/airborne_yolo_v3_finetune`.
+
+#### Step 2 — Fine-tune config
+
+Create `configs/training/airborne_yolo11_v3_finetune.yaml`:
+
+| Setting | Value | Reason |
+|---|---|---|
+| `model` | `data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt` | Start from v2, not COCO |
+| `epochs` | 40 | Small dataset; 80 risks overfitting |
+| `lr0` | 0.001 | 10× lower than initial training (fine-tune rate) |
+| `freeze` | 10 | Freeze first 10 backbone layers; update neck + head only |
+| `imgsz` | 1024 | Match v2 training resolution |
+| `batch` | 8 | Same as v2 |
+| `run_name` | `yolo11s_airborne_aod4_antiuav300_camhard_v3` | Clear lineage |
+
+Do **not** use `resume=True`. This is a new fine-tune run starting from
+`best.pt`, not a continuation of the v2 run.
+
+#### Step 3 — Run fine-tune
+
+```powershell
+cd "C:\Users\Ali\Desktop\SKY"
+.\.venv_train\Scripts\python.exe scripts/train_airborne_yolo.py `
+  --config configs/training/airborne_yolo11_v3_finetune.yaml `
+  --workers 8 `
+  --batch 8
+```
+
+Expected time on RTX 5070 Ti: **30–60 minutes** (40 epochs, small dataset).
+
+#### Step 4 — Evaluate
+
+Run against the hard-case packet and report **both** metrics:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts/evaluate_hard_case.py `
+  --csv annotations/camera_20260423_113401_turn_review_strict/drone_sparse_gt_corrected.csv `
+  --config configs/trained_yolo11s_v3_eval.yaml `
+  --output data/outputs/hard_case_v3_finetune
+```
+
+Target: semantic drone hit rate ≥ 50 % at conf=0.25 (from current 1.9 %).
+Also verify geometric hit rate does not regress below v2 (42.6 %).
+False locks on negative frames must remain 0.
+
+#### Step 5 — Promote and name
+
+```
+data/models/yolo11s_airborne_aod4_antiuav300_camhard_v3/best.pt
+data/models/yolo11s_airborne_aod4_antiuav300_camhard_v3/last.pt
+```
+
+Config `model_version` string: `yolo11s_airborne_aod4_antiuav300_camhard_v3_e40_final`
+
+#### Risk and fallback
+
+If 54 frames does not move semantic hit rate meaningfully (< 20 % after
+fine-tune), the next lever is annotating more frames from the same video —
+especially frames 96–105 which are true detector misses even at conf=0.01.
+Those frames require more varied drone appearances at that pixel size and
+should be prioritised for the annotation session.
+
+---
+
+### Remaining Forward-Looking Items
+
+These are not gate blockers for the current mission video but are needed
+before the system is robust on arbitrary new footage:
+
+1. **Frames 96–105 coverage** — true detector blindness even at conf ≥ 0.01.
+   Requires additional long-range / small-pixel drone training data, or
+   targeted annotation of those frames and nearby context.
+2. **Obtain LRDDv2** (or equivalent long-range drone data) and enable the
+   `lrddv2_long_range_drone` source in the manifest. Same pixel-tiny regime
+   as the hard miss frames.
+3. **Tracker regression set** — capture the 6 previously-failing tracker
+   miss frames (6000, 6120, 6300, 6495, 6675, plus context) as a named
+   regression slice and wire a unit test against them.
+4. **Tighten lock semantics** so `guidance_valid=true` requires semantic
+   drone confidence ≥ a calibrated threshold, not just label match against
+   `acceptable_lock_labels`.
+5. **Confidence calibration** on validation set (Brier score / temperature
+   scaling) — tightens the link between detector confidence and downstream
+   lock-quality scoring.
 
 ## Acceptance Gate
 

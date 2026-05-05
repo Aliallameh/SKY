@@ -12,10 +12,21 @@ data/training/airborne_yolo_v2/
 data/training/aod4_only_test/
 data/training/local_sparse_gt_yolo/
 data/training/anti_uav300_smoke_test/
+data/training/prototypes/
+data/training/previews/
+data/training/validation_slices/
+data/training/raw_cache/
+data/training/converted/
+data/training/airborne_stage*/
+data/training/airborne_yolo_v3_finetune_quick/
+data/training/.ultralytics/
 
 # Training outputs
 runs/
 data/outputs/
+
+# Raw external datasets stay local.
+DATASETS/
 
 # Local training logs (UTF-16 PowerShell tee output, can grow into tens of MB)
 data/training/*.log

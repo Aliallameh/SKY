@@ -1,0 +1,111 @@
+schema_version: "skyscout.airborne_dataset_manifest.v3"
+
+purpose: >
+  Controlled V3/V4 airborne-target training pipeline. The product goal is to
+  detect, track, and semantically-safe lock onto hostile drone targets. Bird,
+  airplane, and helicopter labels are diagnostic/safety-gate classes, not the
+  mission objective by themselves.
+
+taxonomy:
+  stage1:
+    names:
+      0: drone
+  stage2_stage3:
+    names:
+      0: drone
+      1: bird
+      2: airplane
+      3: helicopter
+  unknown_airborne_policy: >
+    unknown_airborne is removed as a YOLO training class unless inspection finds
+    explicit labelled boxes for it. Generic/supercategory boxes are skipped.
+
+seed: 42
+copy_mode_default: copy
+
+gates:
+  before_conversion:
+    - Run scripts/inspect_airborne_datasets.py.
+    - Confirm class-remapping tables in data/training/dataset_inspection_report.md.
+    - Confirm v2 baseline evaluation plan is recorded.
+  before_full_conversion:
+    - Run every converter with --limit 20.
+    - Run scripts/validate_yolo_dataset.py for each prototype dataset.
+    - Render previews with scripts/preview_yolo_labels.py and visually inspect them.
+  before_stage2_full_training:
+    - Audit AOD-4 drone-vs-airplane samples, especially tiny boxes.
+    - Confirm AOD-4 does not dominate Mavic-like drone data through caps/weights.
+  before_stage3:
+    - Annotate at least 100-200 local Mavic-style frames.
+    - Evaluate v2 and Stage 2 on local hard-case GT and held-out Mavic-like validation.
+
+datasets:
+  anti_uav_rgbt:
+    raw_root: DATASETS/1_Anti-UAV-RGBT
+    converter: scripts/datasets/convert_anti_uav_rgbt.py
+    include_modality: visible_rgb_only
+    stage1_class_remap:
+      visible_exist_1: drone
+      visible_exist_0: empty_negative_label
+    split_policy: sequence_id_only
+    default_caps:
+      stride: 5
+      max_positives_per_seq: 60
+      max_negatives_per_seq: 5
+
+  dut_anti_uav_detection:
+    raw_root: DATASETS/2_DUT-Anti-UAV
+    raw_cache: data/training/raw_cache/dut_antiuav_detection
+    converter: scripts/datasets/convert_dut_anti_uav.py
+    stage1_class_remap:
+      UAV: drone
+      uav: drone
+      drone: drone
+    split_policy: official_detection_train_val_test
+
+  visiodect:
+    raw_root: DATASETS/4_VisioDECT Dataset Upload
+    converter: scripts/datasets/convert_visiodect.py
+    stage1_class_remap:
+      all_drone_model_folders_and_labels: drone
+    split_policy: scenario_or_sequence_group_only
+    mavic_like_validation_slice: data/training/validation_slices/visiodect_mavic_like
+    mavic_policy: >
+      Discover exact Mavic/Mavic Air/Mavic Enterprise/DJI Mavic-like names during
+      inspection. Hold out validation groups from training. If there are not
+      enough Mavic-like groups/samples, keep all Mavic-like VisioDECT held out.
+
+  aod4:
+    raw_root: DATASETS/5_AOD 4 Dataset for Air Borne Object Detection
+    converter: scripts/datasets/convert_aod4.py
+    stage2_class_remap:
+      "0": airplane
+      "1": bird
+      "2": drone
+      "3": helicopter
+      generic_supercategory: skip
+    split_policy: official_train_valid_test
+    stage_policy: Stage 2 only after visual audit.
+
+  drone_vs_bird:
+    raw_root: DATASETS/3_Drone vs Bird Aerial Object Classification Dataset
+    converter: scripts/datasets/convert_drone_vs_bird.py
+    stage_policy: >
+      If classification-only, do not use for YOLO detection training. Reserve for
+      later crop classifier or hard-negative mining.
+
+staged_outputs:
+  stage1_drone_only: data/training/airborne_stage1_drone_only
+  stage2_multiclass: data/training/airborne_stage2_multiclass
+  stage3_camhard_finetune: data/training/airborne_stage3_camhard_finetune
+
+promotion_policy:
+  stage1: never_promote
+  eligible_stage: stage3_or_later_only
+  target_model_dir: data/models/yolo11s_airborne_stage3_camhard_v3
+  priority:
+    - false-lock negatives = 0
+    - reduced Mavic-like drone-to-airplane confusion
+    - no significant increase in bird-to-drone or airplane-to-drone false positives
+    - improved local semantic drone hit rate
+    - mAP

@@ -20,6 +20,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--workers", type=int, default=None)
     p.add_argument("--cache", choices=["ram", "disk", "false"], default=None)
     p.add_argument("--amp", choices=["true", "false"], default=None)
+    p.add_argument("--lr0", type=float, default=None, help="Override initial learning rate")
+    p.add_argument("--freeze", type=int, default=None, help="Override number of layers to freeze")
+    p.add_argument("--cos-lr", choices=["true", "false"], default=None, help="Override cosine LR schedule")
+    p.add_argument("--run-name", default=None, help="Override Ultralytics run name")
     return p.parse_args()
 
 
@@ -65,13 +69,19 @@ def main() -> int:
         "patience": int(train_cfg.get("patience", 20)),
         "workers": args.workers if args.workers is not None else int(train_cfg.get("workers", 4)),
         "project": str(project_path),
-        "name": str(train_cfg.get("run_name", "yolo11s_airborne_drone_vs_bird_v1")),
+        "name": str(args.run_name or train_cfg.get("run_name", "yolo11s_airborne_drone_vs_bird_v1")),
         "optimizer": train_cfg.get("optimizer", "auto"),
         "close_mosaic": int(train_cfg.get("close_mosaic", 10)),
         "seed": int(train_cfg.get("seed", 42)),
         "cache": train_cfg.get("cache", False),
         "amp": bool(train_cfg.get("amp", True)),
     }
+    if "lr0" in train_cfg or args.lr0 is not None:
+        train_args["lr0"] = float(args.lr0 if args.lr0 is not None else train_cfg["lr0"])
+    if "freeze" in train_cfg or args.freeze is not None:
+        train_args["freeze"] = int(args.freeze if args.freeze is not None else train_cfg["freeze"])
+    if "cos_lr" in train_cfg or args.cos_lr is not None:
+        train_args["cos_lr"] = (args.cos_lr == "true") if args.cos_lr is not None else bool(train_cfg["cos_lr"])
     if args.cache is not None:
         train_args["cache"] = False if args.cache == "false" else args.cache
     if args.amp is not None:

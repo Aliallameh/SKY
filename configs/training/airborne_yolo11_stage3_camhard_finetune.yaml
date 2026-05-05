@@ -1,0 +1,69 @@
+schema_version: "skyscout.airborne_training.v3"
+profile_name: "yolo11s_airborne_stage3_camhard_v3"
+
+dataset:
+  manifest: "configs/training/airborne_dataset_manifest_v3.yaml"
+  prepared_dir: "data/training/airborne_stage3_camhard_finetune"
+  data_yaml: "data/training/airborne_stage3_camhard_finetune/data.yaml"
+  gate: "requires 100-200 labelled local Mavic-style frames before Stage 3"
+
+model:
+  family: "ultralytics_yolo"
+  # Keep v2 as the conservative default until Stage 2 proves it reduces
+  # drone->airplane confusion on held-out Mavic-like and local hard-case GT.
+  base_weights: "data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt"
+  image_size: 1024
+  pretrained: true
+
+training:
+  epochs: 40
+  batch: 8
+  patience: 12
+  workers: 8
+  device: "auto"
+  project: "data/training/runs"
+  run_name: "yolo11s_airborne_stage3_camhard_v3"
+  optimizer: "auto"
+  close_mosaic: 5
+  seed: 42
+  cache: false
+  amp: true
+  lr0: 0.001
+  freeze: 10
+  cos_lr: true
+
+augmentation:
+  hsv_h: 0.010
+  hsv_s: 0.35
+  hsv_v: 0.30
+  degrees: 0.0
+  translate: 0.04
+  scale: 0.35
+  shear: 0.0
+  perspective: 0.0
+  fliplr: 0.5
+  mosaic: 0.4
+  mixup: 0.0
+  copy_paste: 0.0
+
+promotion_gate:
+  matched_positive_rate: ">= 0.90"
+  median_center_error_px: "<= 25"
+  labelled_track_id_switches: "<= 3"
+  false_lock_negative_frames: 0
+  mavic_like_drone_to_airplane_confusion: "reduced versus v2"
+  bird_to_drone_and_airplane_to_drone_false_positives: "not significantly worse than v2"
+
+promotion_target:
+  model_dir: "data/models/yolo11s_airborne_stage3_camhard_v3"
+  eval_config: "configs/trained_yolo11s_v3_eval.yaml"
+  model_version: "yolo11s_airborne_stage3_camhard_v3_e40_final"
+
+gates:
+  before_smoke_test:
+    - stage3_dataset_validation_passed
+    - local_mavic_style_annotations_min_100_to_200
+    - base_model_decision_recorded
+  smoke_test_command: >
+    .\.venv_train\Scripts\python.exe scripts/train_airborne_yolo.py
+    --config configs/training/airborne_yolo11_stage3_camhard_finetune.yaml --epochs 1 --batch 8 --workers 8

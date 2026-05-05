@@ -47,6 +47,18 @@ def parse_args() -> argparse.Namespace:
                    help="Override config to disable visual bearing guidance hints")
     p.add_argument("--camera-hfov-deg", type=float, default=None,
                    help="Override guidance.camera.horizontal_fov_deg")
+    p.add_argument("--detector-conf", type=float, default=None,
+                   help="Override detector.confidence_threshold for diagnostic sweeps")
+    p.add_argument("--tracker-max-prediction-only-frames", type=int, default=None,
+                   help="Override tracker.max_prediction_only_frames for diagnostic sweeps")
+    p.add_argument("--tracker-min-prediction-confidence", type=float, default=None,
+                   help="Override tracker.min_prediction_confidence for diagnostic sweeps")
+    p.add_argument("--tracker-reacquisition-radius-px", type=float, default=None,
+                   help="Override tracker.reacquisition_radius_px for diagnostic sweeps")
+    p.add_argument("--tracker-center-match-threshold-px", type=float, default=None,
+                   help="Override tracker.center_match_threshold_px for diagnostic sweeps")
+    p.add_argument("--lock-accept-labels", default=None,
+                   help="Comma-separated override for lock.acceptable_lock_labels")
     p.add_argument("--mock-bridge-enabled", action="store_true",
                    help="Override config to enable mock GuidanceHint bridge JSONL output")
     p.add_argument("--no-mock-bridge", action="store_true",
@@ -76,6 +88,25 @@ def main() -> int:
         if args.camera_hfov_deg is not None:
             cfg.setdefault("guidance", {}).setdefault("camera", {})
             cfg["guidance"]["camera"]["horizontal_fov_deg"] = args.camera_hfov_deg
+        if args.detector_conf is not None:
+            cfg.setdefault("detector", {})
+            cfg["detector"]["confidence_threshold"] = args.detector_conf
+        if args.tracker_max_prediction_only_frames is not None:
+            cfg.setdefault("tracker", {})
+            cfg["tracker"]["max_prediction_only_frames"] = args.tracker_max_prediction_only_frames
+        if args.tracker_min_prediction_confidence is not None:
+            cfg.setdefault("tracker", {})
+            cfg["tracker"]["min_prediction_confidence"] = args.tracker_min_prediction_confidence
+        if args.tracker_reacquisition_radius_px is not None:
+            cfg.setdefault("tracker", {})
+            cfg["tracker"]["reacquisition_radius_px"] = args.tracker_reacquisition_radius_px
+        if args.tracker_center_match_threshold_px is not None:
+            cfg.setdefault("tracker", {})
+            cfg["tracker"]["center_match_threshold_px"] = args.tracker_center_match_threshold_px
+        if args.lock_accept_labels is not None:
+            labels = [x.strip() for x in args.lock_accept_labels.split(",") if x.strip()]
+            cfg.setdefault("lock", {})
+            cfg["lock"]["acceptable_lock_labels"] = labels
         if args.mock_bridge_enabled and args.no_mock_bridge:
             raise ValueError("Use only one of --mock-bridge-enabled or --no-mock-bridge")
         if args.mock_bridge_enabled:

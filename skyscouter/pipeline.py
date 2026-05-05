@@ -246,6 +246,13 @@ class Pipeline:
                 self._annotator.write(annotated)
 
             self._logger.increment_frame()
+            if frame.frame_index > 0 and frame.frame_index % 300 == 0:
+                label = "NO_TARGET" if primary is None else str(primary.detection.class_label)
+                self._logger.info(
+                    f"Progress frame={frame.frame_index} lock={ts.lock_state} "
+                    f"label={label} conf={float(ts.confidence or 0.0):.3f} "
+                    f"detections={len(detections)}"
+                )
 
         self._logger.info("Pipeline main loop complete")
 
@@ -356,6 +363,7 @@ class Pipeline:
             return ts
 
         d = primary.detection
+        semantic_label = self._normalize_class_label(d.class_label)
         ts = TargetState(
             message_type=MessageType.TARGET_STATE.value,
             timestamp_utc=frame.timestamp_utc,
@@ -365,6 +373,9 @@ class Pipeline:
             guidance_valid=primary_decision.guidance_valid,
             bbox_xywh=[d.x, d.y, d.w, d.h],
             image_size_wh=[frame.width, frame.height],
+            class_id=int(d.class_id),
+            class_label=str(d.class_label),
+            semantic_label=semantic_label,
             line_of_sight_body=None if not self._is_calibrated else None,
             range_estimate_m=None,
             range_source=RangeSource.NONE.value,

@@ -29,7 +29,7 @@ camera:
 # ---------------- Detector ----------------
 # Fine-tuned YOLO11s. Class IDs (from data/training/airborne_yolo_v1/data.yaml):
 #   0=drone, 1=bird, 2=airplane, 3=helicopter, 4=unknown_airborne
-# We keep all four trained airborne classes so the lock state machine can
+# We keep all five trained airborne classes so the lock state machine can
 # observe drone-vs-bird semantics, but only "drone" is in
 # lock.acceptable_lock_labels — birds/aircraft become labeled tracks the
 # system can see but cannot promote to LOCKED.
@@ -39,7 +39,7 @@ detector:
   input_size: 1024
   confidence_threshold: 0.25
   iou_threshold: 0.45
-  keep_class_ids: [0, 1, 2, 3]
+  keep_class_ids: [0, 1, 2, 3, 4]
   fallback_keep_high_conf: false
   fallback_high_conf_threshold: 0.35
   device: "auto"

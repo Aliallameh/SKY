@@ -16,6 +16,7 @@ import json
 import math
 import shutil
 import sys
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import median
@@ -39,6 +40,7 @@ from skyscouter.utils.config_loader import load_config  # noqa: E402
 BBox = Tuple[float, float, float, float]
 POSITIVE_LABELS = {"drone", "uas", "airborne_candidate"}
 NEGATIVE_LABELS = {"negative", "hard_negative", "no_drone", "background"}
+SEMANTIC_CONFUSION_LABELS = ("drone", "airplane", "bird", "helicopter")
 
 
 @dataclass
@@ -70,6 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tracker-iou-hit", type=float, default=0.10)
     parser.add_argument("--center-hit-px", type=float, default=35.0)
     parser.add_argument("--confidence-threshold", type=float, default=None, help="Override detector confidence threshold")
+    parser.add_argument("--weights", default=None, help="Override detector weights path")
     parser.add_argument("--no-copy-images", action="store_true", help="Write labels only; do not copy images")
     return parser.parse_args()
 
@@ -244,22 +247,27 @@ def write_per_frame_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
         "gt_y1",
         "gt_x2",
         "gt_y2",
+        "gt_bbox_size_bin",
         "detections",
         "det_best_class",
         "det_best_conf",
         "det_best_iou",
         "det_center_error_px",
         "det_hit",
+        "det_semantic_hit",
         "track_id",
         "track_status",
         "track_source",
+        "track_class",
         "track_conf",
         "track_time_since_update",
         "track_iou",
         "track_center_error_px",
         "track_hit",
+        "track_semantic_hit",
         "tracker_stale",
-        "negative_false_positive",
+        "detector_negative_false_positive",
+        "tracker_negative_false_positive",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
@@ -279,10 +287,13 @@ def write_summary_md(path: Path, case_name: str, report: Dict[str, Any]) -> None
         f"- Negative frames: {report['negative_frames']}",
         f"- Detector hits: {report['detector']['hit_frames']} / {report['positive_frames']} ({report['detector']['hit_rate']:.1%})",
         f"- Detector semantic drone hits: {report['detector']['semantic_hit_frames']} / {report['positive_frames']} ({report['detector']['semantic_hit_rate']:.1%})",
+        f"- Matched GT semantic confusion: `{report['detector']['matched_gt_semantic_confusion']}`",
+        f"- Drone recall by bbox size: `{report['detector']['drone_recall_by_bbox_size']}`",
         f"- Tracker hits: {report['tracker']['hit_frames']} / {report['positive_frames']} ({report['tracker']['hit_rate']:.1%})",
         f"- Tracker semantic drone hits: {report['tracker']['semantic_hit_frames']} / {report['positive_frames']} ({report['tracker']['semantic_hit_rate']:.1%})",
         f"- Tracker stale frames: {len(report['tracker']['stale_frames'])}",
-        f"- Negative false positives: {len(report['tracker']['negative_false_positive_frames'])}",
+        f"- Detector negative false positives: {len(report['detector']['negative_false_positive_frames'])}",
+        f"- Tracker negative false positives: {len(report['tracker']['negative_false_positive_frames'])}",
         "",
         "## Key Frames",
         "",
@@ -291,7 +302,8 @@ def write_summary_md(path: Path, case_name: str, report: Dict[str, Any]) -> None
         f"- Tracker bad frames: {format_frame_list(report['tracker']['bad_frames'])}",
         f"- Tracker semantic bad frames: {format_frame_list(report['tracker']['semantic_bad_frames'])}",
         f"- Stale tracker frames: {format_frame_list(report['tracker']['stale_frames'])}",
-        f"- Negative false positive frames: {format_frame_list(report['tracker']['negative_false_positive_frames'])}",
+        f"- Detector negative false positive frames: {format_frame_list(report['detector']['negative_false_positive_frames'])}",
+        f"- Tracker negative false positive frames: {format_frame_list(report['tracker']['negative_false_positive_frames'])}",
         "",
         "## Interpretation",
         "",
@@ -304,9 +316,15 @@ def write_summary_md(path: Path, case_name: str, report: Dict[str, Any]) -> None
         lines.append("- Some geometrically-correct boxes have the wrong class label; treat semantic drone recall as the safety-relevant detector metric.")
     if report["tracker"]["stale_frames"]:
         lines.append("- Tracker still emits prediction-only boxes on one or more reviewed frames; stale emission limits should stay strict.")
+    if report["detector"]["negative_false_positive_frames"]:
+        lines.append("- Detector still fires on one or more negative frames; add hard negatives or raise semantic-safe thresholds before promotion.")
     if report["tracker"]["negative_false_positive_frames"]:
         lines.append("- Negative frames still have published tracks; edge/exit-frame suppression needs more work before training is blamed.")
-    if not report["tracker"]["stale_frames"] and not report["tracker"]["negative_false_positive_frames"]:
+    if (
+        not report["tracker"]["stale_frames"]
+        and not report["detector"]["negative_false_positive_frames"]
+        and not report["tracker"]["negative_false_positive_frames"]
+    ):
         lines.append("- The stale-following failure is controlled on this packet with the current tracker settings.")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -334,6 +352,9 @@ def main() -> int:
     yolo_info = export_yolo_dataset(rows, packet_dir, output_dir, copy_images=not args.no_copy_images)
 
     cfg = load_config(args.config)
+    if args.weights is not None:
+        cfg.setdefault("detector", {})
+        cfg["detector"]["weights"] = str(Path(args.weights))
     if args.confidence_threshold is not None:
         cfg.setdefault("detector", {})
         cfg["detector"]["confidence_threshold"] = float(args.confidence_threshold)
@@ -348,6 +369,10 @@ def main() -> int:
         image = cv2.imread(str(image_path))
         if image is None:
             continue
+        image_h, image_w = image.shape[:2]
+        gt_size_bin = ""
+        if row.is_positive and row.bbox is not None:
+            gt_size_bin = bbox_size_bin(row.bbox, image_w, image_h)
 
         detections = detector.detect(image)
         det_best = None
@@ -377,7 +402,8 @@ def main() -> int:
         det_semantic_hit = bool(det_hit and det_best is not None and det_best.class_label in POSITIVE_LABELS)
         track_semantic_hit = bool(track_hit and primary is not None and primary.detection.class_label in POSITIVE_LABELS)
         stale = bool(primary is not None and (primary.time_since_update > 0 or not primary.matched_detection))
-        negative_fp = bool(row.is_negative and primary is not None)
+        detector_negative_fp = bool(row.is_negative and detections)
+        tracker_negative_fp = bool(row.is_negative and primary is not None)
 
         gt = row.bbox or ("", "", "", "")
         per_frame.append(
@@ -388,6 +414,7 @@ def main() -> int:
                 "gt_y1": gt[1],
                 "gt_x2": gt[2],
                 "gt_y2": gt[3],
+                "gt_bbox_size_bin": gt_size_bin,
                 "detections": len(detections),
                 "det_best_class": "" if det_best is None else det_best.class_label,
                 "det_best_conf": "" if det_best is None else safe_float(det_best.confidence),
@@ -406,7 +433,8 @@ def main() -> int:
                 "track_hit": int(track_hit),
                 "track_semantic_hit": int(track_semantic_hit),
                 "tracker_stale": int(stale),
-                "negative_false_positive": int(negative_fp),
+                "detector_negative_false_positive": int(detector_negative_fp),
+                "tracker_negative_false_positive": int(tracker_negative_fp),
             }
         )
 
@@ -417,7 +445,11 @@ def main() -> int:
     tracker_bad_frames = [int(r["frame_id"]) for r in positives if int(r["track_hit"]) == 0]
     tracker_semantic_bad_frames = [int(r["frame_id"]) for r in positives if int(r["track_semantic_hit"]) == 0]
     stale_frames = [int(r["frame_id"]) for r in per_frame if int(r["tracker_stale"]) == 1]
-    negative_fp_frames = [int(r["frame_id"]) for r in negatives if int(r["negative_false_positive"]) == 1]
+    detector_negative_fp_frames = [int(r["frame_id"]) for r in negatives if int(r["detector_negative_false_positive"]) == 1]
+    tracker_negative_fp_frames = [int(r["frame_id"]) for r in negatives if int(r["tracker_negative_false_positive"]) == 1]
+    matched_confusion = build_matched_gt_semantic_confusion(positives)
+    recall_by_size = build_recall_by_bbox_size(positives)
+    detector_label_distribution = Counter(str(r.get("det_best_class", "") or "none") for r in positives)
 
     report: Dict[str, Any] = {
         "schema_version": "skyscout.hard_case_report.v1",
@@ -440,6 +472,10 @@ def main() -> int:
             "semantic_hit_rate": sum(int(r["det_semantic_hit"]) for r in positives) / max(1, len(positives)),
             "miss_frames": detector_miss_frames,
             "semantic_miss_frames": detector_semantic_miss_frames,
+            "matched_gt_semantic_confusion": matched_confusion,
+            "drone_recall_by_bbox_size": recall_by_size,
+            "positive_label_distribution": dict(detector_label_distribution),
+            "negative_false_positive_frames": detector_negative_fp_frames,
             "center_error_px": summarize(float_or_none(r["det_center_error_px"]) for r in positives),
             "iou": summarize(float_or_none(r["det_best_iou"]) for r in positives),
         },
@@ -451,7 +487,7 @@ def main() -> int:
             "bad_frames": tracker_bad_frames,
             "semantic_bad_frames": tracker_semantic_bad_frames,
             "stale_frames": stale_frames,
-            "negative_false_positive_frames": negative_fp_frames,
+            "negative_false_positive_frames": tracker_negative_fp_frames,
             "center_error_px": summarize(float_or_none(r["track_center_error_px"]) for r in positives),
             "iou": summarize(float_or_none(r["track_iou"]) for r in positives),
         },
@@ -466,6 +502,8 @@ def main() -> int:
         "frames": report["frames"],
         "detector_hit_rate": report["detector"]["hit_rate"],
         "detector_semantic_hit_rate": report["detector"]["semantic_hit_rate"],
+        "matched_gt_semantic_confusion": report["detector"]["matched_gt_semantic_confusion"],
+        "drone_recall_by_bbox_size": report["detector"]["drone_recall_by_bbox_size"],
         "tracker_hit_rate": report["tracker"]["hit_rate"],
         "tracker_semantic_hit_rate": report["tracker"]["semantic_hit_rate"],
         "detector_miss_frames": detector_miss_frames,
@@ -473,7 +511,8 @@ def main() -> int:
         "tracker_bad_frames": tracker_bad_frames,
         "tracker_semantic_bad_frames": tracker_semantic_bad_frames,
         "stale_frames": stale_frames,
-        "negative_false_positive_frames": negative_fp_frames,
+        "detector_negative_false_positive_frames": detector_negative_fp_frames,
+        "tracker_negative_false_positive_frames": tracker_negative_fp_frames,
     }, indent=2))
     return 0
 
@@ -485,6 +524,62 @@ def float_or_none(value: Any) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def bbox_size_bin(bbox: BBox, width: int, height: int) -> str:
+    x1, y1, x2, y2 = bbox
+    ratio = max(0.0, (x2 - x1) * (y2 - y1)) / max(1.0, float(width * height))
+    if ratio < 0.0005:
+        return "tiny"
+    if ratio < 0.0025:
+        return "small"
+    return "medium"
+
+
+def build_matched_gt_semantic_confusion(positives: List[Dict[str, Any]]) -> Dict[str, int]:
+    confusion = {
+        "matched_as_drone": 0,
+        "matched_as_airplane": 0,
+        "matched_as_bird": 0,
+        "matched_as_helicopter": 0,
+        "matched_wrong_class": 0,
+        "missed": 0,
+    }
+    for row in positives:
+        if int(row.get("det_hit", 0)) == 0:
+            confusion["missed"] += 1
+            continue
+        label = str(row.get("det_best_class", "") or "").lower()
+        if label in {"drone", "uas"}:
+            confusion["matched_as_drone"] += 1
+        elif label == "airplane":
+            confusion["matched_as_airplane"] += 1
+        elif label == "bird":
+            confusion["matched_as_bird"] += 1
+        elif label == "helicopter":
+            confusion["matched_as_helicopter"] += 1
+        else:
+            confusion["matched_wrong_class"] += 1
+    return confusion
+
+
+def build_recall_by_bbox_size(positives: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in positives:
+        grouped[str(row.get("gt_bbox_size_bin", "") or "unknown")].append(row)
+    out: Dict[str, Dict[str, float]] = {}
+    for size_bin in ("tiny", "small", "medium", "unknown"):
+        rows = grouped.get(size_bin, [])
+        if not rows:
+            continue
+        det_hits = sum(int(r.get("det_hit", 0)) for r in rows)
+        semantic_hits = sum(int(r.get("det_semantic_hit", 0)) for r in rows)
+        out[size_bin] = {
+            "gt_frames": len(rows),
+            "detector_recall": det_hits / max(1, len(rows)),
+            "semantic_drone_recall": semantic_hits / max(1, len(rows)),
+        }
+    return out
 
 
 if __name__ == "__main__":

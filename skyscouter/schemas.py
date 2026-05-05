@@ -104,6 +104,9 @@ class TargetState:
     guidance_valid: bool = False
     bbox_xywh: Optional[List[float]] = None
     image_size_wh: Optional[List[int]] = None
+    class_id: Optional[int] = None
+    class_label: Optional[str] = None
+    semantic_label: Optional[str] = None
     line_of_sight_body: Optional[Dict[str, float]] = None
     range_estimate_m: Optional[float] = None
     range_source: str = RangeSource.NONE.value

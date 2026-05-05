@@ -4,6 +4,24 @@ Last updated: 2026-05-01
 
 This is the practical runbook for training and resuming SkyScouter YOLO models on Windows with an NVIDIA GPU.
 
+## V3/V4 Gate First
+
+For the next model family, do not start a full 80-epoch run from the older
+single-manifest flow. The current product blocker is semantic confusion
+(`drone` GT matched as `airplane`), so V3/V4 training is gated.
+
+Read first:
+
+```text
+docs/DATASET_INTEGRATION_REPORT.md
+docs/V3_EVALUATION_SUMMARY.md
+docs/V3_TRAINING_RESULTS.md
+docs/NEXT_DATA_ANNOTATION_PLAN.md
+```
+
+Stage 1 is diagnostic/pretraining only and must not be promoted. Stage 3 is the
+first eligible promotion stage.
+
 ## Read GPU Utilization Correctly
 
 Task Manager often shows the wrong graph for ML training. The default GPU page usually emphasizes 3D, video encode, and copy engines. PyTorch training uses CUDA compute, so Task Manager can look low even when the card is working.

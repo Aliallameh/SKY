@@ -1,0 +1,61 @@
+schema_version: "skyscout.airborne_training.v3"
+profile_name: "yolo11s_airborne_stage2_multiclass"
+
+dataset:
+  manifest: "configs/training/airborne_dataset_manifest_v3.yaml"
+  prepared_dir: "data/training/airborne_stage2_multiclass"
+  data_yaml: "data/training/airborne_stage2_multiclass/data.yaml"
+  gate: "requires AOD-4 drone-vs-airplane visual audit before full training"
+
+model:
+  family: "ultralytics_yolo"
+  base_weights: "data/training/runs/yolo11s_airborne_stage1_drone_only/weights/best.pt"
+  image_size: 1024
+  pretrained: true
+
+training:
+  epochs: 80
+  batch: 8
+  patience: 20
+  workers: 8
+  device: "auto"
+  project: "data/training/runs"
+  run_name: "yolo11s_airborne_stage2_multiclass"
+  optimizer: "auto"
+  close_mosaic: 10
+  seed: 42
+  cache: false
+  amp: true
+  cos_lr: true
+
+augmentation:
+  hsv_h: 0.015
+  hsv_s: 0.45
+  hsv_v: 0.35
+  degrees: 0.0
+  translate: 0.06
+  scale: 0.50
+  shear: 0.0
+  perspective: 0.0
+  fliplr: 0.5
+  mosaic: 0.7
+  mixup: 0.05
+  copy_paste: 0.0
+
+decision_gate_for_stage3_base:
+  use_stage2_as_stage3_base_only_if:
+    - drone_to_airplane_confusion_improves_vs_v2_on_local_hard_cases
+    - drone_to_airplane_confusion_improves_vs_v2_on_held_out_mavic_like_validation
+    - bird_to_drone_and_airplane_to_drone_false_positives_do_not_significantly_increase
+  otherwise_use: "data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt"
+
+gates:
+  before_smoke_test:
+    - dataset_inspection_passed
+    - prototype_conversions_validated
+    - previews_visual_reviewed
+    - full_conversion_summary_passed
+    - aod4_tiny_drone_vs_airplane_visual_audit_passed
+  smoke_test_command: >
+    .\.venv_train\Scripts\python.exe scripts/train_airborne_yolo.py
+    --config configs/training/airborne_yolo11_stage2_multiclass.yaml --epochs 1 --batch 8 --workers 8

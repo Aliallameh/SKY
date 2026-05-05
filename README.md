@@ -219,6 +219,29 @@ Use:
 
 ## 🏋️ Train A New Detector
 
+V3/V4 training is gated because the current blocker is semantic confusion:
+the model often detects the drone geometrically but labels it `airplane`.
+Do not launch a full 80-epoch run until these docs are reviewed:
+
+```text
+docs/DATASET_INTEGRATION_REPORT.md
+docs/V3_EVALUATION_SUMMARY.md
+docs/V3_TRAINING_RESULTS.md
+docs/NEXT_DATA_ANNOTATION_PLAN.md
+```
+
+The new staged configs are:
+
+```text
+configs/training/airborne_yolo11_stage1_drone_only.yaml
+configs/training/airborne_yolo11_stage2_multiclass.yaml
+configs/training/airborne_yolo11_stage3_camhard_finetune.yaml
+```
+
+Stage 1 is diagnostic/pretraining only and must not be promoted.
+
+Legacy v1/v2 flow:
+
 Build a YOLO dataset:
 
 ```powershell

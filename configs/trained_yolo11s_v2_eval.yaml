@@ -26,7 +26,8 @@ camera:
 
 # ---------------- Detector ----------------
 # v2 weights promoted from historical training run yolo11s_airborne_drone_vs_bird_v2.
-# Class IDs match v1: 0=drone, 1=bird, 2=airplane, 3=helicopter.
+# Class IDs match v1: 0=drone, 1=bird, 2=airplane, 3=helicopter,
+# 4=unknown_airborne.
 # (Note: data.yaml v2 may differ in class index ordering — verify if needed.)
 detector:
   backend: "yolo_ultralytics"
@@ -34,7 +35,7 @@ detector:
   input_size: 1024
   confidence_threshold: 0.25
   iou_threshold: 0.45
-  keep_class_ids: [0, 1, 2, 3]
+  keep_class_ids: [0, 1, 2, 3, 4]
   fallback_keep_high_conf: false
   fallback_high_conf_threshold: 0.35
   device: "auto"

@@ -404,3 +404,29 @@ Do not call the video acceptable until all are true:
 pass.** Matched positive rate 0.977, median center error 1.89 px, labeled
 track ID switches 2, false-lock negative frames 0. See
 [`PHASE_1_RESULTS.md`](PHASE_1_RESULTS.md) for the full breakdown.
+
+## V3/V4 Addendum - Semantic Confusion Gate
+
+The fresh-drone videos changed the training priority. The current v2 detector
+often finds the target geometrically but labels the real drone as `airplane`.
+That blocks semantic-safe lock and cannot be fixed by calling the project
+"drone vs bird".
+
+New handoff docs:
+
+- [`DATASET_INTEGRATION_REPORT.md`](DATASET_INTEGRATION_REPORT.md)
+- [`V3_EVALUATION_SUMMARY.md`](V3_EVALUATION_SUMMARY.md)
+- [`V3_TRAINING_RESULTS.md`](V3_TRAINING_RESULTS.md)
+- [`NEXT_DATA_ANNOTATION_PLAN.md`](NEXT_DATA_ANNOTATION_PLAN.md)
+
+New V3 configs:
+
+- `configs/training/airborne_dataset_manifest_v3.yaml`
+- `configs/training/airborne_yolo11_stage1_drone_only.yaml`
+- `configs/training/airborne_yolo11_stage2_multiclass.yaml`
+- `configs/training/airborne_yolo11_stage3_camhard_finetune.yaml`
+
+Do not run full Stage 1/2/3 training until the V3 gate docs say the inspection,
+20-sample conversions, validation, previews, AOD-4 visual audit, and local
+annotation requirements have passed. Stage 1 is diagnostic/pretraining only and
+must not be promoted.

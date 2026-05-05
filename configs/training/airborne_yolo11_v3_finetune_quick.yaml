@@ -1,0 +1,49 @@
+schema_version: "skyscout.airborne_training.v3"
+profile_name: "yolo11s_airborne_v3_finetune_quick"
+
+dataset:
+  prepared_dir: "data/training/airborne_yolo_v3_finetune_quick"
+  data_yaml: "data/training/airborne_yolo_v3_finetune_quick/data.yaml"
+
+model:
+  family: "ultralytics_yolo"
+  base_weights: "data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt"
+  image_size: 1024
+  pretrained: true
+
+training:
+  epochs: 40
+  batch: 8
+  patience: 12
+  workers: 0
+  device: "auto"
+  project: "data/training/runs"
+  run_name: "yolo11s_airborne_v3_finetune_quick"
+  optimizer: "AdamW"
+  close_mosaic: 5
+  seed: 42
+  cache: false
+  amp: true
+  lr0: 0.001
+  freeze: 10
+  cos_lr: true
+
+augmentation:
+  hsv_h: 0.010
+  hsv_s: 0.35
+  hsv_v: 0.30
+  degrees: 0.0
+  translate: 0.04
+  scale: 0.35
+  shear: 0.0
+  perspective: 0.0
+  fliplr: 0.5
+  mosaic: 0.4
+  mixup: 0.0
+  copy_paste: 0.0
+
+notes:
+  - "Quick V3 domain-adaptation fine-tune from v2 best.pt."
+  - "Do not use resume=True."
+  - "This bypasses full Stage 1/2 training by user request."
+  - "workers=0 for Windows stability on the RTX 5070 Ti workstation."

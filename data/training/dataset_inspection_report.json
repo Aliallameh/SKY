@@ -1,0 +1,528 @@
+{
+  "schema_version": "skyscout.dataset_inspection.v1",
+  "repo_root": "C:\\Users\\Ali\\Desktop\\SKY",
+  "datasets_root": "C:\\Users\\Ali\\Desktop\\SKY\\DATASETS",
+  "target_taxonomy": {
+    "stage1": [
+      "drone"
+    ],
+    "stage2_stage3": [
+      "drone",
+      "bird",
+      "airplane",
+      "helicopter"
+    ],
+    "unknown_airborne_policy": "Not a YOLO training class unless explicit labelled boxes are discovered; generic/supercategory boxes are skipped."
+  },
+  "datasets": {
+    "anti_uav_rgbt": {
+      "display_name": "Anti-UAV-RGBT",
+      "root": "C:\\Users\\Ali\\Desktop\\SKY\\DATASETS\\1_Anti-UAV-RGBT",
+      "status": "present",
+      "file_extension_counts": {
+        ".py": 1,
+        ".json": 639,
+        ".mp4": 636
+      },
+      "image_count": 0,
+      "video_count": 636,
+      "annotation_file_count": 639,
+      "annotation_format": "JSON sequence annotations with exist[] and gt_rect[] plus visible/infrared videos",
+      "recommended_converter": "scripts/datasets/convert_anti_uav_rgbt.py",
+      "stage_policy": "Stage 1 drone-only, RGB/visible only first. Thermal remains a later track.",
+      "class_remapping": {
+        "visible target / UAV": "0 drone"
+      },
+      "safe_to_include": {
+        "stage1": true,
+        "stage2": "sample/cap as drone data only",
+        "stage3": "only via balanced sample"
+      },
+      "split_sequence_counts": {
+        "train": 160,
+        "val": 67,
+        "test": 91
+      },
+      "modality_pairs_seen_in_sample": {
+        "visible": 6,
+        "infrared": 6
+      },
+      "sample_annotation_examples": [
+        {
+          "path": "train\\20190925_101846_1_1\\visible.json",
+          "keys": [
+            "exist",
+            "gt_rect"
+          ],
+          "frames": 1000,
+          "visible_frames": 775,
+          "sample_rect": [
+            664,
+            542,
+            211,
+            122
+          ]
+        },
+        {
+          "path": "train\\20190925_101846_1_1\\infrared.json",
+          "keys": [
+            "exist",
+            "gt_rect"
+          ],
+          "frames": 1000,
+          "visible_frames": 791,
+          "sample_rect": [
+            216,
+            300,
+            80,
+            48
+          ]
+        },
+        {
+          "path": "train\\20190925_101846_1_2\\visible.json",
+          "keys": [
+            "exist",
+            "gt_rect"
+          ],
+          "frames": 1000,
+          "visible_frames": 1000,
+          "sample_rect": [
+            719,
+            528,
+            135,
+            77
+          ]
+        }
+      ],
+      "has_bounding_boxes": true,
+      "has_negative_frames": true,
+      "sequence_ids_available": true
+    },
+    "dut_anti_uav": {
+      "display_name": "DUT-Anti-UAV",
+      "root": "C:\\Users\\Ali\\Desktop\\SKY\\DATASETS\\2_DUT-Anti-UAV",
+      "status": "present",
+      "file_extension_counts": {
+        ".jpg": 34804,
+        ".xml": 10000,
+        ".txt": 40
+      },
+      "image_count": 34804,
+      "video_count": 0,
+      "annotation_file_count": 10040,
+      "annotation_format": "Detection VOC XML in train/val/test folders or zips; tracking TXT exists but is not Stage 1 first pass.",
+      "recommended_converter": "scripts/datasets/convert_dut_anti_uav.py",
+      "stage_policy": "Stage 1 drone-only using Detection VOC zips extracted to data/training/raw_cache/dut_antiuav_detection.",
+      "class_remapping": {
+        "UAV": "0 drone",
+        "uav": "0 drone",
+        "drone": "0 drone"
+      },
+      "safe_to_include": {
+        "stage1": true,
+        "stage2": "sample/cap as drone data only",
+        "stage3": "only via balanced sample"
+      },
+      "zip_files": [],
+      "detected_class_names": {
+        "UAV": 65
+      },
+      "sample_annotation_examples": [
+        {
+          "split": "train",
+          "xml_count": 5200,
+          "image_count": 5200,
+          "sample_xml": "Detection (IEEE-TITS)\\train\\train\\xml\\00001.xml"
+        },
+        {
+          "split": "val",
+          "xml_count": 2600,
+          "image_count": 2600,
+          "sample_xml": "Detection (IEEE-TITS)\\val\\xml\\00001.xml"
+        },
+        {
+          "split": "test",
+          "xml_count": 2200,
+          "image_count": 2200,
+          "sample_xml": "Detection (IEEE-TITS)\\test\\test\\xml\\00001.xml"
+        }
+      ],
+      "has_bounding_boxes": true,
+      "has_negative_images": "unknown",
+      "sequence_ids_available": "Detection image groups only; tracking split has sequences but is deferred."
+    },
+    "visiodect": {
+      "display_name": "VisioDECT",
+      "root": "C:\\Users\\Ali\\Desktop\\SKY\\DATASETS\\4_VisioDECT Dataset Upload",
+      "status": "present",
+      "file_extension_counts": {
+        ".jpg": 20924,
+        ".csv": 17,
+        ".txt": 19424,
+        ".xml": 19428,
+        ".xlsx": 1
+      },
+      "image_count": 20924,
+      "video_count": 0,
+      "annotation_file_count": 38869,
+      "annotation_format": "Mixed VOC XML, YOLO TXT, CSV/XLSX. Use VOC XML/paired images first when available.",
+      "recommended_converter": "scripts/datasets/convert_visiodect.py",
+      "stage_policy": "Stage 1 drone-only. Collapse drone model classes to 0 drone. Keep Mavic-like validation held out.",
+      "class_remapping": {
+        "all drone model folders/classes": "0 drone"
+      },
+      "safe_to_include": {
+        "stage1": "non-held-out drone samples only",
+        "stage2": "sample/cap as drone data only",
+        "stage3": "only via balanced sample"
+      },
+      "top_level_folders": [
+        "Anafi-Extended",
+        "DJIFPV",
+        "DJIPhantom",
+        "EFT-E410S",
+        "Mavic_Air",
+        "Mavic_Enterprise"
+      ],
+      "xml_files_parsed_for_class_discovery": 9948,
+      "detected_class_names": {
+        "voc_xml_names": {
+          "Anafi_Extended_Evening": 1200,
+          "Anafi_Extended_Sunny": 989,
+          "DJI_FPV_Cloudy": 811,
+          "MAVIC_Air_Cloudy": 875,
+          "Mavic_Air_Cloudy": 290,
+          "MAVIC_Air_Evening": 867,
+          "Mavic_Air_Evening": 296,
+          "MAVIC_Air_Sunny": 891,
+          "Mavic_Air_Sunny": 300,
+          "MAVIC2_Enterprise_Dual_Cloudy": 1113,
+          "Mavic_Enterprise_Cloudy": 298,
+          "MAVIC2_Enterprise_Dual_Evening": 627,
+          "Mavic_Enterprise_Evening": 281,
+          "MAVIC2_Enterprise_Dual_Sunny": 819,
+          "Mavic_Enterprise_Sunny": 291
+        },
+        "yolo_class_ids_sample": {
+          "13": 1200,
+          "14": 989,
+          "6": 811
+        },
+        "csv_labels_sample": {
+          "Anafi_Extended_Cloudy": 1203,
+          "Anafi_Extended_Evening": 1199,
+          "Anafi_Extended_Sunny": 1052,
+          "DJI_FPV_Cloudy": 1111,
+          "DJI_FPV_Evening": 1126,
+          "DJI_FPV_Sunny": 1199,
+          "DJI_Phantom_Cloudy": 900,
+          "DJI_Phantom_Evening": 1199,
+          "EFTE410S_Cloudy": 1199,
+          "EFTE410S_Evening": 1151,
+          "EFTE410S_Sunny": 1199,
+          "MAVIC_Air_Cloudy": 874,
+          "Mavic_Air_Cloudy": 290,
+          "MAVIC_Air_Evening": 866,
+          "Mavic_Air_Evening": 296,
+          "MAVIC_Air_Sunny": 890,
+          "Mavic_Air_Sunny": 300,
+          "MAVIC2_Enterprise_Dual_Cloudy": 1117,
+          "Mavic_Enterprise_Cloudy": 298,
+          "Mavic_Enterprise_Evening": 281,
+          "MAVIC2_Enterprise_Dual_Evening": 627,
+          "MAVIC2_Enterprise_Dual_Sunny": 819,
+          "Mavic_Enterprise_Sunny": 291
+        }
+      },
+      "mavic_like_discovery": {
+        "folder_matches": {
+          "Mavic_Air": 3519,
+          "Mavic_Enterprise": 3429
+        },
+        "label_matches": {
+          "MAVIC_Air_Cloudy": 875,
+          "Mavic_Air_Cloudy": 290,
+          "MAVIC_Air_Evening": 867,
+          "Mavic_Air_Evening": 296,
+          "MAVIC_Air_Sunny": 891,
+          "Mavic_Air_Sunny": 300,
+          "MAVIC2_Enterprise_Dual_Cloudy": 1113,
+          "Mavic_Enterprise_Cloudy": 298,
+          "MAVIC2_Enterprise_Dual_Evening": 627,
+          "Mavic_Enterprise_Evening": 281,
+          "MAVIC2_Enterprise_Dual_Sunny": 819,
+          "Mavic_Enterprise_Sunny": 291
+        },
+        "all_path_tokens": [
+          "Mavic_Air",
+          "Mavic_Enterprise"
+        ]
+      },
+      "sample_annotation_examples": [
+        {
+          "path": "Anafi-Extended\\labels\\evening\\voc\\Anafi_Extended_Evening (1).xml",
+          "objects": [
+            {
+              "name": "Anafi_Extended_Evening",
+              "bbox": [
+                871.0,
+                838.0,
+                954.0,
+                905.0
+              ]
+            }
+          ]
+        },
+        {
+          "path": "Anafi-Extended\\labels\\evening\\voc\\Anafi_Extended_Evening (10).xml",
+          "objects": [
+            {
+              "name": "Anafi_Extended_Evening",
+              "bbox": [
+                871.0,
+                851.0,
+                940.0,
+                901.0
+              ]
+            }
+          ]
+        },
+        {
+          "path": "Anafi-Extended\\labels\\evening\\voc\\Anafi_Extended_Evening (100).xml",
+          "objects": [
+            {
+              "name": "Anafi_Extended_Evening",
+              "bbox": [
+                854.0,
+                860.0,
+                924.0,
+                898.0
+              ]
+            }
+          ]
+        },
+        {
+          "path": "Anafi-Extended\\labels\\evening\\voc\\Anafi_Extended_Evening (1000).xml",
+          "objects": [
+            {
+              "name": "Anafi_Extended_Evening",
+              "bbox": [
+                951.0,
+                401.0,
+                1008.0,
+                450.0
+              ]
+            }
+          ]
+        },
+        {
+          "path": "Anafi-Extended\\labels\\evening\\voc\\Anafi_Extended_Evening (1001).xml",
+          "objects": [
+            {
+              "name": "Anafi_Extended_Evening",
+              "bbox": [
+                949.0,
+                401.0,
+                1010.0,
+                447.0
+              ]
+            }
+          ]
+        }
+      ],
+      "has_bounding_boxes": true,
+      "has_negative_images": "unknown",
+      "sequence_ids_available": true,
+      "mavic_validation_policy": "If enough Mavic-like scenario folders/images exist, split by scenario into train and held-out validation; otherwise keep all Mavic-like VisioDECT samples held out and train from local Mavic-style annotations."
+    },
+    "aod4": {
+      "display_name": "AOD-4",
+      "root": "C:\\Users\\Ali\\Desktop\\SKY\\DATASETS\\5_AOD 4 Dataset for Air Borne Object Detection",
+      "status": "present",
+      "file_extension_counts": {
+        ".zip": 1,
+        ".json": 3,
+        ".xml": 22516,
+        ".tfrecord": 3,
+        ".pbtxt": 3,
+        ".txt": 45032,
+        ".jpg": 22516
+      },
+      "image_count": 22516,
+      "video_count": 0,
+      "annotation_file_count": 67551,
+      "annotation_format": "COCO/VOC/YOLOv8/TF formats available; use YOLOv8 labels with explicit class map.",
+      "recommended_converter": "scripts/datasets/convert_aod4.py",
+      "stage_policy": "Stage 2 multiclass after visual AOD-4 drone-vs-airplane audit, especially tiny boxes.",
+      "class_remapping": {
+        "0": "airplane",
+        "1": "bird",
+        "2": "drone",
+        "3": "helicopter",
+        "generic supercategory": "skip"
+      },
+      "safe_to_include": {
+        "stage1": false,
+        "stage2": "after preview/audit",
+        "stage3": "balanced sample only"
+      },
+      "discovered_root": "C:\\Users\\Ali\\Desktop\\SKY\\DATASETS\\5_AOD 4 Dataset for Air Borne Object Detection\\AOD 4",
+      "detected_class_names": {
+        "coco_categories_sample": {
+          "AOD 4\\Annotations\\COCO Annotation format\\test\\_annotations.coco.json": [
+            {
+              "id": 0,
+              "name": "airplane-helicopter-drone-bird",
+              "supercategory": "none"
+            },
+            {
+              "id": 1,
+              "name": "airplane",
+              "supercategory": "airplane-helicopter-drone-bird"
+            },
+            {
+              "id": 2,
+              "name": "bird",
+              "supercategory": "airplane-helicopter-drone-bird"
+            },
+            {
+              "id": 3,
+              "name": "drone",
+              "supercategory": "airplane-helicopter-drone-bird"
+            },
+            {
+              "id": 4,
+              "name": "helicopter",
+              "supercategory": "airplane-helicopter-drone-bird"
+            }
+          ],
+          "AOD 4\\Annotations\\COCO Annotation format\\train\\_annotations.coco.json": [
+            {
+              "id": 0,
+              "name": "airplane-helicopter-drone-bird",
+              "supercategory": "none"
+            },
+            {
+              "id": 1,
+              "name": "airplane",
+              "supercategory": "airplane-helicopter-drone-bird"
+            },
+            {
+              "id": 2,
+              "name": "bird",
+              "supercategory": "airplane-helicopter-drone-bird"
+            },
+            {
+              "id": 3,
+              "name": "drone",
+              "supercategory": "airplane-helicopter-drone-bird"
+            },
+            {
+              "id": 4,
+              "name": "helicopter",
+              "supercategory": "airplane-helicopter-drone-bird"
+            }
+          ],
+          "AOD 4\\Annotations\\COCO Annotation format\\valid\\_annotations.coco.json": [
+            {
+              "id": 0,
+              "name": "airplane-helicopter-drone-bird",
+              "supercategory": "none"
+            },
+            {
+              "id": 1,
+              "name": "airplane",
+              "supercategory": "airplane-helicopter-drone-bird"
+            },
+            {
+              "id": 2,
+              "name": "bird",
+              "supercategory": "airplane-helicopter-drone-bird"
+            },
+            {
+              "id": 3,
+              "name": "drone",
+              "supercategory": "airplane-helicopter-drone-bird"
+            },
+            {
+              "id": 4,
+              "name": "helicopter",
+              "supercategory": "airplane-helicopter-drone-bird"
+            }
+          ]
+        },
+        "yolo_class_ids_sample": {
+          "2": 1550,
+          "1": 826,
+          "0": 767,
+          "3": 787
+        }
+      },
+      "sample_annotation_examples": [
+        "AOD 4\\Annotations\\YOLOv8 format\\test\\labels\\20190925_101846_1_1_000_jpg.rf.497f3eb572bec39e6856f75fc88b3d1b.txt",
+        "AOD 4\\Annotations\\YOLOv8 format\\test\\labels\\20190925_101846_1_1_004_jpg.rf.0c12b3a3cad8a8cac2e429c602904551.txt",
+        "AOD 4\\Annotations\\YOLOv8 format\\test\\labels\\20190925_101846_1_1_012_jpg.rf.650837209d9799f117a6a9f17fd5aac4.txt",
+        "AOD 4\\Annotations\\YOLOv8 format\\test\\labels\\20190925_101846_1_1_024_jpg.rf.7c0b22dcf973590c4c1e33353e73d1f7.txt",
+        "AOD 4\\Annotations\\YOLOv8 format\\test\\labels\\20190925_101846_1_1_052_jpg.rf.0ddc07320dab89c9869d093fd6e5474c.txt",
+        "AOD 4\\Annotations\\YOLOv8 format\\test\\labels\\20190925_101846_1_1_072_jpg.rf.01279762d519866af81c76ed692406c4.txt",
+        "AOD 4\\Annotations\\YOLOv8 format\\test\\labels\\20190925_101846_1_1_124_jpg.rf.7627cbeb488970ac2a32f5ea4803f52f.txt",
+        "AOD 4\\Annotations\\YOLOv8 format\\test\\labels\\20190925_101846_1_1_144_jpg.rf.08c4429dc8ee95499faf57a645f2758a.txt"
+      ],
+      "has_bounding_boxes": true,
+      "has_negative_images": "unknown",
+      "sequence_ids_available": false,
+      "required_visual_audit": "Audit AOD-4 drone vs airplane samples before Stage 2 full training; generic category 0 in COCO is not a training class."
+    },
+    "drone_vs_bird": {
+      "display_name": "Drone-vs-Bird classification dataset",
+      "root": "C:\\Users\\Ali\\Desktop\\SKY\\DATASETS\\3_Drone vs Bird Aerial Object Classification Dataset",
+      "status": "present",
+      "file_extension_counts": {
+        ".jpg": 3278,
+        ".jpeg": 778,
+        ".webp": 2,
+        ".png": 48
+      },
+      "image_count": 4106,
+      "video_count": 0,
+      "annotation_file_count": 0,
+      "annotation_format": "Classification folders unless annotation files are discovered.",
+      "recommended_converter": "scripts/datasets/convert_drone_vs_bird.py",
+      "stage_policy": "Later hard-negative mining/crop classifier only if no bounding boxes exist.",
+      "class_remapping": {
+        "drone folder": "crop-level drone only",
+        "bird folder": "crop-level bird only"
+      },
+      "safe_to_include": {
+        "stage1": false,
+        "stage2": false,
+        "stage3": false
+      },
+      "detected_class_names": {
+        "classification_folders": {
+          "bird": 1607,
+          "drone": 2499
+        }
+      },
+      "sample_annotation_examples": [],
+      "has_bounding_boxes": false,
+      "direct_yolo_training_decision": "Do not mix directly into YOLO detection training; classification-only source.",
+      "has_negative_images": "classification-only",
+      "sequence_ids_available": false
+    }
+  },
+  "gates": {
+    "converter_gate": "PASS only after this report contains remapping tables and no unsupported critical annotation formats.",
+    "training_gate": "Do not run full 80-epoch training until 20-sample conversions validate and previews are visually reviewed."
+  },
+  "baseline_plan": {
+    "current_v2_model": "data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt",
+    "must_run_before_new_training": [
+      "local hard-case GT with matched-GT semantic confusion and bbox-size recall",
+      "corrected my_drone_chase sparse GT acceptance packet",
+      "fresh Video_1-Video_5 proxy metrics; still proxy-only until sparse GT exists",
+      "held-out VisioDECT Mavic-like validation slice after it is created"
+    ],
+    "safety_note": "Semantic-safe lock metrics and airborne-review geometry metrics must remain separate."
+  }
+}

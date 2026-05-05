@@ -1,9 +1,11 @@
+# Review-only replay with the quick V3 local-domain fine-tune.
+# This checkpoint is not promoted; use it to compare overlays on fresh videos.
+
 schema_version: "skyscout.config.v1"
-profile_name: "bench_guidance_quick"
+profile_name: "trained_yolo11s_v3_finetune_quick_eval"
 
 source:
-  type: "image_folder"
-  assumed_fps: 30.0
+  type: "video_file"
   frame_stride: 1
   strict: true
 
@@ -20,15 +22,15 @@ camera:
 
 detector:
   backend: "yolo_ultralytics"
-  weights: "data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt"
+  weights: "data/training/runs/yolo11s_airborne_v3_finetune_quick/weights/best.pt"
   input_size: 1024
   confidence_threshold: 0.25
   iou_threshold: 0.45
-  keep_class_ids: [0, 1, 2, 3, 4]
+  keep_class_ids: [0, 1, 2, 3]
   fallback_keep_high_conf: false
   fallback_high_conf_threshold: 0.35
   device: "auto"
-  model_version: "yolo11s_airborne_aod4_antiuav300_v2_e80_final"
+  model_version: "yolo11s_airborne_v3_finetune_quick_e38_best_unpromoted"
 
 tracker:
   backend: "single_target_kalman_lk"
@@ -38,6 +40,8 @@ tracker:
   reacquisition_radius_px: 180
   max_primary_switches_per_second: 1.0
   track_buffer_frames: 30
+  max_prediction_only_frames: 1
+  min_prediction_confidence: 0.08
   min_track_length: 3
   ego_motion_compensation: false
 
@@ -106,6 +110,7 @@ guidance:
     draw_target_center: true
     draw_error_vector: true
     draw_text: true
+    draw_bbox_geometry: true
 
 mock_bridge:
   enabled: false
@@ -125,4 +130,4 @@ output:
   save_raw_detections: false
   save_diagnostics_csv: true
   save_manifest: true
-  annotated_video_fps: 10
+  annotated_video_fps: null

@@ -225,10 +225,15 @@ Do not launch a full 80-epoch run until these docs are reviewed:
 
 ```text
 docs/DATASET_INTEGRATION_REPORT.md
+docs/DATASET_SOURCING_DECISION.md
 docs/V3_EVALUATION_SUMMARY.md
 docs/V3_TRAINING_RESULTS.md
 docs/NEXT_DATA_ANNOTATION_PLAN.md
 ```
+
+Important dataset policy: AOD-4 is now a capped rejection/confuser source, not
+the source of truth for drone identity. V3/V4 drone identity should come from
+local Mavic-style annotations, VisioDECT, Anti-UAV-RGBT, and DUT-Anti-UAV.
 
 The new staged configs are:
 

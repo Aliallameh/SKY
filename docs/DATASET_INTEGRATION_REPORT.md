@@ -37,8 +37,37 @@ data/training/dataset_inspection_report.md
 | Anti-UAV-RGBT | 636 videos, 639 JSON annotation files with `exist[]` and `gt_rect[]` | Stage 1 drone-only, visible/RGB only |
 | DUT-Anti-UAV Detection | 34,804 images, VOC XML with `UAV` boxes in extracted Detection folders | Stage 1 drone-only |
 | VisioDECT | 20,924 images, VOC/YOLO/CSV annotations | Stage 1 drone-only; Mavic-like validation held out |
-| AOD-4 | 22,516 images, COCO/VOC/YOLOv8/TF annotations | Stage 2 multiclass after visual audit |
+| AOD-4 | 22,516 images, COCO/VOC/YOLOv8/TF annotations | Stage 2 capped rejection/confuser source after visual audit; not the authority for drone identity |
 | Drone-vs-Bird | 4,106 classification images, no boxes found | Do not use for YOLO detection; later hard-negative/crop-classifier work only |
+
+## AOD-4 Decision
+
+AOD-4 was selected because it is the only currently local detection dataset with
+explicit `drone`, `bird`, `airplane`, and `helicopter` boxes. That makes it
+useful for rejection: it teaches the detector that not every airborne object is
+a lockable drone.
+
+It is not considered the best or final product dataset. For V3/V4, drone
+identity should be driven by local Mavic-style annotations, VisioDECT,
+Anti-UAV-RGBT, and DUT-Anti-UAV. AOD-4 should be capped and used mainly for
+airplane/bird/helicopter confusers. The Stage 2 dataset builder now excludes
+images containing AOD-4 `drone` boxes by default until the AOD-4
+drone-vs-airplane visual audit passes.
+
+Safer Stage 2 build shape:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts\build_staged_airborne_dataset.py `
+  --stage stage2 `
+  --link-mode copy `
+  --cap aod4=6000 `
+  --cap anti_uav_rgbt=5000 `
+  --cap dut_anti_uav=5000 `
+  --cap visiodect=12000
+```
+
+To intentionally include AOD-4 drone boxes after audit, add
+`--no-default-exclusions` and record the audit result first.
 
 ## Class Remapping
 
@@ -146,7 +175,7 @@ artifacts and remain ignored by git.
 | Anti-UAV-RGBT | `data/training/converted/anti_uav_rgbt` | 19,250 | 18,727 | PASS | 523 empty negatives |
 | DUT-Anti-UAV | `data/training/converted/dut_anti_uav` | 10,000 | 10,108 | PASS | 1 duplicate warning |
 | VisioDECT | `data/training/converted/visiodect` | 18,226 | 18,227 | PASS | excludes held-out `Mavic_Air_sunny` |
-| AOD-4 | `data/training/converted/aod4` | 22,516 | 31,598 | PASS | balanced multiclass conversion |
+| AOD-4 | `data/training/converted/aod4` | 22,516 | 31,598 | PASS | balanced multiclass conversion; Stage 2 should cap it and exclude AOD-4 drone boxes until audit |
 
 Full preview folders:
 
@@ -229,6 +258,7 @@ Do not run full Stage 1/2/3 training yet.
 Remaining gates:
 
 - Human visual review of full preview folders.
-- AOD-4 drone-vs-airplane visual audit, especially tiny objects.
+- AOD-4 confuser visual audit, especially tiny bird/airplane/helicopter boxes.
+- AOD-4 drone-vs-airplane visual audit before any training run includes AOD-4 drone boxes.
 - Full Mavic-like held-out slice creation and v2 baseline on that full slice. **Done for VisioDECT Mavic_Air_sunny.**
 - Local Mavic-style annotation: at least 100-200 frames before Stage 3.

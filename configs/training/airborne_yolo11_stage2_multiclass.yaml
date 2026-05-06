@@ -5,7 +5,17 @@ dataset:
   manifest: "configs/training/airborne_dataset_manifest_v3.yaml"
   prepared_dir: "data/training/airborne_stage2_multiclass"
   data_yaml: "data/training/airborne_stage2_multiclass/data.yaml"
-  gate: "requires AOD-4 drone-vs-airplane visual audit before full training"
+  gate: "requires AOD-4 confuser preview/audit and capped build before full training"
+  build_policy: >
+    AOD-4 is a secondary rejection/confuser source, not the authority for drone
+    identity. The default Stage 2 builder excludes images containing AOD-4
+    `drone` boxes until the AOD-4 drone-vs-airplane visual audit passes. Drone
+    positives should come mainly from VisioDECT, Anti-UAV-RGBT, DUT-Anti-UAV,
+    and local Mavic-style annotations.
+  recommended_build_command: >
+    .\.venv_train\Scripts\python.exe scripts/build_staged_airborne_dataset.py
+    --stage stage2 --link-mode copy
+    --cap aod4=6000 --cap anti_uav_rgbt=5000 --cap dut_anti_uav=5000 --cap visiodect=12000
 
 model:
   family: "ultralytics_yolo"
@@ -55,7 +65,8 @@ gates:
     - prototype_conversions_validated
     - previews_visual_reviewed
     - full_conversion_summary_passed
-    - aod4_tiny_drone_vs_airplane_visual_audit_passed
+    - aod4_confuser_previews_passed
+    - aod4_tiny_drone_vs_airplane_visual_audit_passed_before_enabling_aod4_drone_boxes
   smoke_test_command: >
     .\.venv_train\Scripts\python.exe scripts/train_airborne_yolo.py
     --config configs/training/airborne_yolo11_stage2_multiclass.yaml --epochs 1 --batch 8 --workers 8

@@ -4,9 +4,12 @@ Last updated: 2026-05-06
 
 ## Status
 
-No full staged V3 training run has been started.
+Stage 1 full training has completed, but it remains diagnostic/pretraining only
+and is not promoted. Stage 2 has not started.
 
-That is intentional. The gates now block uncontrolled 80-epoch training until inspection, 20-sample conversions, validation, previews, full conversion summaries, and AOD-4 visual audit pass.
+The gates still block uncontrolled Stage 2 training until the capped Stage 2
+dataset is rebuilt, validated, previewed, and AOD-4 is audited as a confuser
+source.
 
 A minimal V3 quick domain-adaptation fine-tune has been completed from v2 best weights for the corrected local hard-case packet. This is not a replacement for the staged V3/V4 pipeline, and it is not promoted.
 
@@ -135,7 +138,7 @@ cos_lr
 | Stage | Dataset | Base | Epochs | Promotion |
 |---|---|---|---:|---|
 | Stage 1 | `data/training/airborne_stage1_drone_only` | `yolo11s.pt` | 80 | never promote |
-| Stage 2 | `data/training/airborne_stage2_multiclass` | Stage 1 best | 80 | not directly promoted |
+| Stage 2 | `data/training/airborne_stage2_multiclass` | Stage 1 best | 80 | not directly promoted; capped confuser training |
 | Stage 3 | `data/training/airborne_stage3_camhard_finetune` | Stage 2 best only if it beats v2 on semantic confusion; otherwise v2 best | 40 | eligible |
 
 Stage 3 conservative default:
@@ -284,6 +287,47 @@ data/training/converted/aod4
 ```
 
 Current status: these full conversions are complete and validate cleanly.
+
+Stage 2 must not treat AOD-4 as the source of truth for drone identity. AOD-4
+is kept because it is the only currently local detection source with explicit
+airplane/bird/helicopter confusers, but it should be capped and its `drone`
+boxes should stay excluded until visual audit passes.
+
+Recommended Stage 2 build command:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts\build_staged_airborne_dataset.py `
+  --stage stage2 `
+  --link-mode copy `
+  --cap aod4=6000 `
+  --cap anti_uav_rgbt=5000 `
+  --cap dut_anti_uav=5000 `
+  --cap visiodect=12000
+```
+
+The builder excludes `aod4:drone` by default for Stage 2. Use
+`--no-default-exclusions` only after the AOD-4 drone-vs-airplane audit is
+recorded.
+
+Policy smoke check:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts\build_staged_airborne_dataset.py `
+  --stage stage2 `
+  --out-dir data\training\prototypes\stage2_policy_smoke `
+  --link-mode copy `
+  --cap aod4=20 `
+  --cap anti_uav_rgbt=5 `
+  --cap dut_anti_uav=5 `
+  --cap visiodect=5
+
+.\.venv_train\Scripts\python.exe scripts\validate_yolo_dataset.py `
+  --data data\training\prototypes\stage2_policy_smoke\data.yaml
+```
+
+Result: PASS, 35 images, 45 objects, 0 validation errors, 0 warnings. The
+builder skipped 12 AOD-4 images containing excluded `drone` labels while
+filling the 20-image AOD-4 cap, proving the default exclusion is active.
 
 Merged Stage 1 dataset is also built and validated:
 

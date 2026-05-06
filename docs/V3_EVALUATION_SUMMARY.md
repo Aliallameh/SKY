@@ -316,8 +316,10 @@ Decision:
 
 ```text
 Do not promote Stage 1.
-Use it only as a candidate Stage 2 base, where AOD-4/multiclass training must
-re-teach bird and aircraft rejection before any Stage 3 local fine-tune.
+Use it only as a candidate Stage 2 base. Stage 2 must re-teach non-drone
+airborne rejection before any Stage 3 local fine-tune, but AOD-4 is only a
+capped confuser source. Do not let AOD-4 define drone identity unless its
+drone-vs-airplane audit passes.
 ```
 
 ## Fresh Video Proxy Baseline

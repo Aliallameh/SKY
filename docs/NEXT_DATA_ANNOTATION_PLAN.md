@@ -6,6 +6,12 @@ Last updated: 2026-05-04
 
 The v2 model often tracks the local drone geometrically but calls it `airplane`. V3 needs local Mavic-style drone frames labelled as `drone`, plus hard negatives, before Stage 3 fine-tuning can be trusted.
 
+Public datasets are support data, not the final authority. AOD-4 is useful for
+airplane/bird/helicopter rejection, but it does not replace local footage from
+the real capture camera, real zoom, real weather, and real drone shape. The
+highest-value data for the next model is still Ali's local Mavic-style video
+with clean boxes and true negatives.
+
 ## Required Local Annotation Folder
 
 ```text
@@ -45,6 +51,10 @@ Priority clips:
 | `Video_2` | visible miss sections if the drone can be seen |
 | `Video_4` | visible miss sections if the drone can be seen |
 | hard negatives | birds, aircraft, clouds, empty sky, edge exits |
+
+Confuser frames matter because they protect the lock gate. They are not a
+product goal by themselves: birds and aircraft are labelled so the model learns
+not to call them `drone`.
 
 ## Before Sandbox Readiness
 

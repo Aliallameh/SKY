@@ -39,6 +39,22 @@ gates:
     - Annotate at least 100-200 local Mavic-style frames.
     - Evaluate v2 and Stage 2 on local hard-case GT and held-out Mavic-like validation.
 
+dataset_selection_policy:
+  primary_drone_identity_sources:
+    - local Mavic-style annotations from the real capture camera
+    - VisioDECT Mavic-like and non-held-out drone-model samples
+    - Anti-UAV-RGBT visible/RGB UAV tracking samples
+    - DUT-Anti-UAV detection samples
+  rejection_confuser_sources:
+    - AOD-4 airplane/bird/helicopter boxes after preview/audit
+    - local hard negatives from Video_1 to Video_5 and future field captures
+    - optional external aerospace confuser datasets after license and bbox audit
+  aod4_policy: >
+    AOD-4 is not treated as the authority for drone identity. It is the best
+    currently local multiclass airborne detection source, so it is useful for
+    bird/airplane/helicopter rejection. Its drone boxes are excluded from Stage
+    2 by default until the AOD-4 drone-vs-airplane visual audit passes.
+
 datasets:
   anti_uav_rgbt:
     raw_root: DATASETS/1_Anti-UAV-RGBT
@@ -85,7 +101,12 @@ datasets:
       "3": helicopter
       generic_supercategory: skip
     split_policy: official_train_valid_test
-    stage_policy: Stage 2 only after visual audit.
+    stage_policy: >
+      Stage 2 rejection/confuser source only after visual audit. Default Stage
+      2 builds exclude images containing AOD-4 `drone` boxes so drone identity
+      is learned from local/Mavic-like/Anti-UAV/DUT sources instead.
+    default_stage2_exclusion: "aod4:drone"
+    default_stage2_cap: 6000
 
   drone_vs_bird:
     raw_root: DATASETS/3_Drone vs Bird Aerial Object Classification Dataset

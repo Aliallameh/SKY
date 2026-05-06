@@ -62,6 +62,14 @@ DEFAULT_OUT = {
     "stage3": "data/training/airborne_stage3_camhard_finetune",
 }
 
+DEFAULT_EXCLUDED_SOURCE_CLASSES = {
+    # AOD-4 is useful as a local multiclass airborne rejection source, but its
+    # drone-vs-airplane identity needs visual audit before it is allowed to
+    # teach "drone". Drone identity should come from VisioDECT/Anti-UAV/DUT and
+    # local Mavic-style annotations until that audit passes.
+    "stage2": ["aod4:drone"],
+}
+
 
 @dataclass
 class SourceSpec:
@@ -75,6 +83,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", default=None)
     parser.add_argument("--source", action="append", default=[], help="name=path converted YOLO source. Repeatable.")
     parser.add_argument("--cap", action="append", default=[], help="name=N deterministic source image cap. Repeatable.")
+    parser.add_argument(
+        "--exclude-source-class",
+        action="append",
+        default=[],
+        help=(
+            "source:class_name to skip any image containing that source class. "
+            "Repeatable. Example: --exclude-source-class aod4:drone"
+        ),
+    )
+    parser.add_argument(
+        "--no-default-exclusions",
+        action="store_true",
+        help="Disable built-in safety exclusions such as Stage 2 excluding AOD-4 drone boxes before audit.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--link-mode", choices=["copy", "hardlink", "symlink"], default="copy")
     return parser.parse_args()
@@ -86,6 +108,7 @@ def main() -> int:
     out_dir = Path(args.out_dir or DEFAULT_OUT[args.stage]).resolve()
     source_specs = parse_sources(args.source or DEFAULT_SOURCES[args.stage])
     caps = parse_caps(args.cap)
+    excluded_source_classes = parse_excluded_source_classes(args.stage, args.exclude_source_class, args.no_default_exclusions)
     reset_yolo_dirs(out_dir)
     write_data_yaml(out_dir, class_names)
     summary = ConversionSummary(
@@ -98,11 +121,19 @@ def main() -> int:
         notes=[
             "This builder does not convert raw datasets. Run 20-sample converters, validation, and previews first.",
             "Caps are deterministic by source/image path and should be used to prevent AOD-4 domination in Stage 2.",
+            "Excluded source classes skip the whole image, not just the box, so a visible excluded object is not trained as background.",
         ],
     )
     source_summaries: Dict[str, object] = {}
     for source in source_specs:
-        source_summary = merge_source(source, out_dir, class_names, caps.get(source.name), args)
+        source_summary = merge_source(
+            source,
+            out_dir,
+            class_names,
+            caps.get(source.name),
+            excluded_source_classes.get(source.name, set()),
+            args,
+        )
         source_summaries[source.name] = source_summary
         for split, split_data in source_summary["splits"].items():
             for class_name, count in split_data.get("class_counts", {}).items():
@@ -148,7 +179,32 @@ def parse_caps(values: Sequence[str]) -> Dict[str, int]:
     return caps
 
 
-def merge_source(source: SourceSpec, out_dir: Path, target_names: List[str], cap: Optional[int], args: argparse.Namespace) -> Dict[str, object]:
+def parse_excluded_source_classes(stage: str, values: Sequence[str], no_default_exclusions: bool) -> Dict[str, set[str]]:
+    excluded: Dict[str, set[str]] = {}
+    raw_values: List[str] = []
+    if not no_default_exclusions:
+        raw_values.extend(DEFAULT_EXCLUDED_SOURCE_CLASSES.get(stage, []))
+    raw_values.extend(values)
+    for value in raw_values:
+        if ":" not in value:
+            raise ValueError(f"--exclude-source-class must be source:class_name, got: {value}")
+        source, class_name = value.split(":", 1)
+        source = source.strip()
+        class_name = class_name.strip().lower()
+        if not source or not class_name:
+            raise ValueError(f"--exclude-source-class must be source:class_name, got: {value}")
+        excluded.setdefault(source, set()).add(class_name)
+    return excluded
+
+
+def merge_source(
+    source: SourceSpec,
+    out_dir: Path,
+    target_names: List[str],
+    cap: Optional[int],
+    excluded_source_classes: set[str],
+    args: argparse.Namespace,
+) -> Dict[str, object]:
     data_yaml = source.path / "data.yaml"
     if not data_yaml.exists():
         raise FileNotFoundError(f"Converted source data.yaml is missing for {source.name}: {data_yaml}")
@@ -159,9 +215,11 @@ def merge_source(source: SourceSpec, out_dir: Path, target_names: List[str], cap
     source_names = normalize_names(cfg.get("names", {}))
     name_remap = build_name_remap(source_names, target_names)
     candidates = collect_candidates(source_root)
-    if cap is not None and len(candidates) > cap:
-        candidates = sorted(candidates, key=lambda item: stable_fraction(f"{args.seed}:{source.name}:{item[0]}:{item[1].name}"))[:cap]
     summary = empty_source_summary(source, None)
+    if cap is not None:
+        candidates = select_capped_candidates(source, candidates, cap, excluded_source_classes, source_names, summary, args.seed)
+    elif excluded_source_classes:
+        candidates = filter_excluded_candidates(candidates, excluded_source_classes, source_names, summary)
     for split, image_path, label_path in candidates:
         boxes, skipped = read_and_remap_labels(label_path, source_names, name_remap)
         summary["skipped_labels"] += skipped
@@ -207,6 +265,58 @@ def collect_candidates(source_root: Path) -> List[Tuple[str, Path, Path]]:
     return candidates
 
 
+def select_capped_candidates(
+    source: SourceSpec,
+    candidates: List[Tuple[str, Path, Path]],
+    cap: int,
+    excluded_source_classes: set[str],
+    source_names: List[str],
+    summary: Dict[str, object],
+    seed: int,
+) -> List[Tuple[str, Path, Path]]:
+    ordered = sorted(candidates, key=lambda item: stable_fraction(f"{seed}:{source.name}:{item[0]}:{item[1].name}"))
+    selected = []
+    for split, image_path, label_path in ordered:
+        if excluded_source_classes and read_source_class_names(label_path, source_names) & excluded_source_classes:
+            summary["skipped_images_due_to_excluded_classes"] = int(summary["skipped_images_due_to_excluded_classes"]) + 1
+            continue
+        selected.append((split, image_path, label_path))
+        if len(selected) >= cap:
+            break
+    return selected
+
+
+def filter_excluded_candidates(
+    candidates: List[Tuple[str, Path, Path]],
+    excluded_source_classes: set[str],
+    source_names: List[str],
+    summary: Dict[str, object],
+) -> List[Tuple[str, Path, Path]]:
+    filtered_candidates = []
+    for split, image_path, label_path in candidates:
+        present_classes = read_source_class_names(label_path, source_names)
+        if present_classes & excluded_source_classes:
+            summary["skipped_images_due_to_excluded_classes"] = int(summary["skipped_images_due_to_excluded_classes"]) + 1
+            continue
+        filtered_candidates.append((split, image_path, label_path))
+    return filtered_candidates
+
+
+def read_source_class_names(label_path: Path, source_names: List[str]) -> set[str]:
+    names: set[str] = set()
+    for line in label_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        parts = line.strip().split()
+        if not parts:
+            continue
+        try:
+            source_id = int(float(parts[0]))
+        except ValueError:
+            continue
+        if 0 <= source_id < len(source_names):
+            names.add(source_names[source_id].lower())
+    return names
+
+
 def read_and_remap_labels(label_path: Path, source_names: List[str], remap: Dict[int, int]) -> Tuple[List[YoloBox], int]:
     boxes = []
     skipped = 0
@@ -239,6 +349,7 @@ def empty_source_summary(source: SourceSpec, reason: Optional[str]) -> Dict[str,
         "objects": 0,
         "empty_labels": 0,
         "skipped_labels": 0,
+        "skipped_images_due_to_excluded_classes": 0,
         "splits": {split: {"images": 0, "objects": 0, "empty_labels": 0, "class_counts": {}, "bbox_size_bins": {}} for split in SPLITS},
     }
 

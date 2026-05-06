@@ -90,16 +90,23 @@ gate.
 
 ## Chosen Training Direction
 
-First production training profile (shipped):
+Historical production training profile (shipped as v2):
 
 - model: YOLO11s
-- classes: `drone, bird, airplane, helicopter, unknown_airborne`
+- classes: `drone, bird, airplane, helicopter`
 - image size: 1024 (will revisit at 1280 if small-target recall plateaus)
 - deployment target: exportable Ultralytics YOLO detector backend
 - training device: GPU (CUDA / MPS) auto-detected, with AMP
 - run output: `data/training/runs/<run_name>/weights/{best,last}.pt`
 
-Dataset priority:
+V3/V4 dataset priority:
+
+Current correction, 2026-05-06: the list below is historical v2 lineage and
+is superseded for V3/V4. AOD-4 is no longer the primary data source. Use local
+Mavic-style annotations, VisioDECT, Anti-UAV-RGBT, and DUT-Anti-UAV for drone
+identity. Use AOD-4 only as a capped airplane/bird/helicopter rejection source
+unless its drone-vs-airplane audit passes. The local Drone-vs-Bird download is
+classification-only and must not be mixed directly into YOLO detection training.
 
 1. AOD-4 — airborne object dataset for drone/bird/aircraft separation. **In use.**
 2. Drone-vs-Bird Challenge-style data for hard drone vs bird discrimination.

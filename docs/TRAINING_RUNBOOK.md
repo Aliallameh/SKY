@@ -69,6 +69,26 @@ If `torch.cuda.is_available()` is `False`, do not train yet. Fix PyTorch/CUDA fi
 
 ## Build A Training Dataset
 
+For V3/V4, prefer the staged builder over the older single-manifest builder.
+Stage 2 intentionally treats AOD-4 as a capped confuser source, not the main
+drone identity source:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts/build_staged_airborne_dataset.py `
+  --stage stage2 `
+  --link-mode copy `
+  --cap aod4=6000 `
+  --cap anti_uav_rgbt=5000 `
+  --cap dut_anti_uav=5000 `
+  --cap visiodect=12000
+```
+
+By default, Stage 2 excludes images containing AOD-4 `drone` boxes until the
+AOD-4 drone-vs-airplane audit passes. Use `--no-default-exclusions` only after
+that audit is recorded.
+
+Historical v1/v2 builder:
+
 ```powershell
 .\.venv_train\Scripts\python.exe scripts/prepare_airborne_training_set.py `
   --manifest configs/training/airborne_dataset_manifest.yaml `

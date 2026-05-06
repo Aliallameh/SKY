@@ -39,7 +39,9 @@ augmentation:
   perspective: 0.0
   fliplr: 0.5
   mosaic: 0.7
-  mixup: 0.05
+  # Mixup triggered Windows DataLoader worker RAM failures at 1024px.
+  # For small airborne boxes, mosaic + geometric/color aug are enough here.
+  mixup: 0.0
   copy_paste: 0.0
 
 gates:

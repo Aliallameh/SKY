@@ -1,45 +1,95 @@
-# 🛩️ SkyScouter
+# SkyScouter
 
-**Onboard visual reacquisition, tracking, and guidance overlays for small airborne targets.**
+SkyScouter is an onboard computer-vision pipeline for detecting, tracking, and
+reviewing small airborne targets. The current product goal is clear:
 
-SkyScouter takes a video, finds a distant drone-like target, tracks it frame by frame, writes machine-readable target states, and renders an annotated review video. The repo now includes the trained YOLO checkpoints through **Git LFS**, so a fresh clone can run the trained detector profiles without hunting for model files.
-
----
-
-## 🚀 What You Can Do Today
-
-| Task | Status |
-|---|---|
-| Run a video through detector + tracker | ✅ Ready |
-| Render readable overlays with bbox geometry | ✅ Ready |
-| Evaluate sparse ground truth CSVs | ✅ Ready |
-| Run the trained YOLO11s detector | ✅ Ready with Git LFS weights |
-| Review hard-case frames in browser | ✅ Ready |
-| Train a new YOLO detector | ✅ Scripted |
-| Fly/control a real vehicle | ❌ Not implemented |
-
----
-
-## 🧰 Fresh Machine Setup
-
-### 1. Install prerequisites
-
-You need:
-
-- Python `3.10` to `3.12`
-- Git
-- Git LFS
-- Optional but recommended: NVIDIA GPU + CUDA-capable PyTorch
-
-Check Git LFS:
-
-```powershell
-git lfs version
+```text
+detect -> track -> lock review -> log evidence
 ```
 
-If that command fails, install Git LFS first: [https://git-lfs.com](https://git-lfs.com)
+The system currently runs in **log-only/advisory mode**. It does not send
+MAVLink commands, ESP32 commands, payload commands, or actuator commands.
 
-### 2. Clone with model weights
+## Current Status
+
+| Area | Status |
+|---|---|
+| Video replay pipeline | Ready |
+| YOLO detector backend | Ready |
+| Tracker and lock-state machine | Ready |
+| Human-readable overlays | Ready |
+| Target-state JSONL output | Ready |
+| Guidance-hint JSONL output | Ready, advisory only |
+| Jetson USB camera ingest | Implemented on live-camera branch |
+| TensorRT export helper | Implemented on Jetson deployment branch |
+| Real flight control | Not implemented |
+| Safety claim | Not allowed yet |
+
+The current deployable model is:
+
+```text
+data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt
+```
+
+Important caveat: v2 can geometrically detect the target but sometimes labels a
+real drone as `airplane`. That means semantic-safe lock can be blocked. Do not
+hide this. It is the main model-improvement target for V3/V4.
+
+## Branches
+
+There are three important branches right now:
+
+| Branch | Purpose |
+|---|---|
+| `main` | Stable project history and current committed baseline |
+| `codex/jetson-deployment-kit` | Jetson setup, TensorRT export, benchmark tooling |
+| `feature/jetson-live-camera-runtime` | Full Jetson USB camera runtime, built on top of the deployment kit |
+
+For Jetson live-camera work, use:
+
+```bash
+git checkout feature/jetson-live-camera-runtime
+```
+
+That branch includes the Jetson deployment kit plus the real camera runtime.
+
+## What Gets Committed
+
+Committed:
+
+```text
+source code
+configs
+docs
+curated model weights under data/models/ through Git LFS
+small annotation CSVs that are needed for reproducibility
+```
+
+Not committed:
+
+```text
+DATASETS/
+data/videos/
+data/outputs/
+data/training/runs/
+TensorRT .engine files
+raw review frame dumps
+random checkpoint files outside data/models/
+```
+
+TensorRT `.engine` files are built on the Jetson and stay local because they
+are tied to JetPack, TensorRT, CUDA, and device details.
+
+## Fresh Clone
+
+Install:
+
+- Python 3.10 to 3.12 on Windows workstation
+- Git
+- Git LFS
+- NVIDIA CUDA/PyTorch stack for training or inference
+
+Clone with model weights:
 
 ```powershell
 git lfs install
@@ -48,16 +98,16 @@ cd SKY
 git lfs pull
 ```
 
-The important model files should appear here:
+Confirm the important weights exist:
 
 ```text
-data/models/yolo11s_airborne_drone_vs_bird_v1/best.pt
-data/models/yolo11s_airborne_drone_vs_bird_v1/last.pt
 data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt
 data/models/yolo11s_airborne_aod4_antiuav300_v2/last.pt
 ```
 
-### 3. Create the Python environment
+## Windows Workstation Setup
+
+Create the normal environment:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -65,14 +115,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-If `py -3.12` is not available, use your installed Python:
-
-```powershell
-python -m venv .venv
-```
-
-For long training runs on Ali's Windows workstation, prefer a dedicated
-training environment so it is obvious which Python owns CUDA:
+For long training runs, use the dedicated training environment:
 
 ```powershell
 py -3.12 -m venv .venv_train
@@ -81,57 +124,151 @@ py -3.12 -m venv .venv_train
 .\.venv_train\Scripts\python.exe -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no cuda')"
 ```
 
-Expected: `True` and your NVIDIA GPU name.
+Expected result:
 
-### 4. Use a local Ultralytics settings folder
+```text
+True
+your NVIDIA GPU name
+```
 
-On some Windows machines, Ultralytics may try to read a blocked roaming profile path. Set this once per terminal:
+If Ultralytics tries to use a blocked Windows settings folder:
 
 ```powershell
 $env:YOLO_CONFIG_DIR = "$PWD"
 ```
 
----
+## Run A Video Replay
 
-## ▶️ Run The Trained Detector
-
-Place your video in:
+Place a video under:
 
 ```text
 data/videos/
 ```
 
-Then run:
+Run:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/run_pipeline.py `
   --video data/videos/camera_20260423_113401.mp4 `
   --config configs/trained_yolo11s_v2_guidance_full.yaml `
-  --output data/outputs/run_camera_113401
+  --output data/outputs/replay_camera_113401
 ```
 
-Main outputs:
+Outputs:
 
-| Output | What it is |
+| File | Meaning |
 |---|---|
-| `annotated.mp4` | Review video with overlays |
+| `annotated.mp4` | Human review video |
 | `target_states.jsonl` | One target-state row per frame |
 | `guidance_hints.jsonl` | Bearing/elevation/yaw proposal log |
 | `diagnostics.csv` | Per-frame debug values |
 | `manifest.json` | Reproducibility record |
 
----
+## Jetson Orin Nano Super Setup
 
-## Jetson Orin Nano Deployment
+Use the live-camera branch:
 
-The current edge-deployment path uses the curated v2 model:
-
-```text
-data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt
+```bash
+git fetch
+git checkout feature/jetson-live-camera-runtime
+git lfs pull
 ```
 
-On Jetson, pull Git LFS weights, install the JetPack-matched NVIDIA PyTorch
-stack, then export TensorRT locally:
+Use JetPack-matched NVIDIA PyTorch. Do not blindly install the Windows
+CUDA 12.8 requirements file on Jetson.
+
+Recommended Jetson environment shape:
+
+```bash
+python3 -m venv .venv_jetson --system-site-packages
+source .venv_jetson/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements-jetson.txt
+```
+
+Full Jetson instructions:
+
+```text
+docs/JETSON_ORIN_NANO_SETUP.md
+```
+
+## Verified Jetson Camera
+
+Camera:
+
+```text
+4K ZOOM CAMERA
+/dev/video0
+OpenCV device index 0
+```
+
+Use this realtime mode first:
+
+```text
+backend: V4L2
+fourcc: MJPG
+width: 1280
+height: 720
+fps: 30
+```
+
+Use `MJPG`, not `YUYV`. YUYV is too slow at useful resolutions on this camera.
+
+Verified direct OpenCV result:
+
+```text
+1280x720 MJPG 30 fps
+300 frames
+10.68 seconds
+about 28 fps observed
+```
+
+## Run The Full Jetson Live Pipeline
+
+Before TensorRT export exists, run the full PyTorch live pipeline:
+
+```bash
+python3 scripts/run_jetson_live_pipeline.py --backend pytorch
+```
+
+After exporting the TensorRT engine, run:
+
+```bash
+python3 scripts/run_jetson_live_pipeline.py --backend tensorrt
+```
+
+The live runtime writes:
+
+| File | Meaning |
+|---|---|
+| `raw_camera.mp4` | Unannotated camera recording |
+| `annotated.mp4` | Review video with overlays |
+| `target_states.jsonl` | Track/lock state per frame |
+| `guidance_hints.jsonl` | Advisory guidance output |
+| `diagnostics.csv` | Per-frame debug data |
+| `manifest.json` | Config, source metadata, artifacts, status |
+
+Press `Ctrl+C` to stop. The pipeline will close writers and finalize
+`manifest.json` with status `interrupted`.
+
+Optional diagnostics:
+
+```bash
+python3 scripts/dev/jetson_preflight_check.py
+
+python3 scripts/dev/test_live_camera_source.py \
+  --device-index 0 \
+  --width 1280 \
+  --height 720 \
+  --fps 30 \
+  --fourcc MJPG \
+  --backend v4l2 \
+  --max-frames 300
+```
+
+## Export TensorRT On Jetson
+
+Build the `.engine` on the Jetson:
 
 ```bash
 python3 scripts/export_tensorrt.py \
@@ -142,7 +279,16 @@ python3 scripts/export_tensorrt.py \
   --half
 ```
 
-Then benchmark:
+Expected local artifacts:
+
+```text
+data/models/yolo11s_airborne_aod4_antiuav300_v2/best.engine
+data/models/yolo11s_airborne_aod4_antiuav300_v2/best.export_manifest.json
+```
+
+Do not commit those files.
+
+Benchmark:
 
 ```bash
 python3 scripts/benchmark_detector_backend.py \
@@ -157,117 +303,57 @@ python3 scripts/benchmark_detector_backend.py \
   --warmup 20
 ```
 
-For the full live camera pipeline on the Jetson:
+## Model Training Direction
 
-```bash
-python3 scripts/run_jetson_live_pipeline.py --backend tensorrt
-```
-
-Use PyTorch before the TensorRT engine exists:
-
-```bash
-python3 scripts/run_jetson_live_pipeline.py --backend pytorch
-```
-
-The runtime writes raw video, annotated video, target states, guidance hints,
-diagnostics, and a manifest. Press `Ctrl+C` to stop and finalize outputs.
-
-Optional camera-only diagnostics are available when needed:
-
-```bash
-python3 scripts/dev/jetson_preflight_check.py
-
-python3 scripts/dev/test_live_camera_source.py \
-  --device-index 0 \
-  --width 1280 \
-  --height 720 \
-  --fps 30 \
-  --fourcc MJPG \
-  --backend v4l2 \
-  --max-frames 300
-
-python3 scripts/run_pipeline.py \
-  --config configs/jetson_live_camera_pytorch.yaml \
-  --output data/outputs/jetson_live_camera_pytorch_smoke
-```
-
-Full setup notes are in:
+Current issue:
 
 ```text
-docs/JETSON_ORIN_NANO_SETUP.md
+The detector often sees the airborne target, but the semantic label can be wrong.
+The most harmful error is drone -> airplane.
 ```
 
-TensorRT `.engine` files are local deployment artifacts and should not be
-committed.
+Training plan:
 
----
+1. Keep v2 as the current deployable baseline.
+2. Do not promote Stage 1. Stage 1 is diagnostic/pretraining only.
+3. Use staged V3/V4 training to reduce drone-to-airplane confusion.
+4. Use local Mavic-style labelled frames before claiming sandbox readiness.
+5. Evaluate semantic-safe lock separately from review-only airborne geometry.
 
-## 🎯 Current Model Weights
-
-The repo tracks these through Git LFS, not normal Git blobs:
-
-| Model | Path | Use |
-|---|---|---|
-| YOLO11s airborne v1 | `data/models/yolo11s_airborne_drone_vs_bird_v1/best.pt` | earlier trained baseline |
-| YOLO11s airborne v1 last | `data/models/yolo11s_airborne_drone_vs_bird_v1/last.pt` | resume/debug checkpoint |
-| YOLO11s AOD-4 + Anti-UAV300 v2 | `data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt` | current trained profile |
-| YOLO11s AOD-4 + Anti-UAV300 v2 last | `data/models/yolo11s_airborne_aod4_antiuav300_v2/last.pt` | resume/debug checkpoint |
-
-Why Git LFS?
-
-- Model weights are large binary files.
-- Normal Git stores every binary change forever.
-- Git LFS keeps the repo usable while still making clones reproducible.
-
-The v2 checkpoint is now the completed epoch-80 AOD-4 + Anti-UAV300 model.
-The raw Ultralytics training run kept its historical name
-`yolo11s_airborne_drone_vs_bird_v2`, but the curated model folder uses the
-clearer lineage name above. Its validation metrics are strong, but the local
-`camera_20260423_113401` hard-case still exposes a semantic error: the target
-is often boxed as `airplane` instead of `drone`. See
-[`docs/E80_FINAL_RESULTS.md`](docs/E80_FINAL_RESULTS.md) before treating the
-model as guidance-ready.
-
----
-
-## 🧪 Reproduce The Hard-Case Regression
-
-The current hard case is the turn/reversal clip from `camera_20260423_113401`, frames `80-140`.
-
-Ground truth packet:
+Important docs:
 
 ```text
-annotations/camera_20260423_113401_turn_review_strict/
+docs/DATASET_INTEGRATION_REPORT.md
+docs/V3_EVALUATION_SUMMARY.md
+docs/V3_TRAINING_RESULTS.md
+docs/NEXT_DATA_ANNOTATION_PLAN.md
+docs/TRAINING_RUNBOOK.md
 ```
 
-Run the evaluator:
+Training command shape:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/evaluate_hard_case.py `
-  --csv annotations/camera_20260423_113401_turn_review_strict/drone_sparse_gt_corrected.csv `
-  --config configs/trained_yolo11s_v2_guidance_full.yaml `
-  --output data/outputs/hard_case_camera_20260423_113401_turn_review_strict
+.\.venv_train\Scripts\python.exe scripts/train_airborne_yolo.py `
+  --config configs/training/airborne_yolo11_stage1_drone_only.yaml `
+  --batch 16 `
+  --workers 4
 ```
 
-Expected shape of the current result:
-
-| Metric | Current behavior |
-|---|---|
-| Detector hit rate | still the main bottleneck |
-| Tracker stale boxes | reduced |
-| Negative false positives after exit | fixed in the latest tracker settings |
-
-Open:
+Training outputs stay under:
 
 ```text
-data/outputs/hard_case_camera_20260423_113401_turn_review_strict/summary.md
+data/training/runs/
 ```
 
----
+Only promote curated checkpoints into:
 
-## 🖍️ Annotate More Frames
+```text
+data/models/
+```
 
-Create a review packet:
+## Annotation Workflow
+
+Create a browser review packet:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/prepare_drone_annotations.py `
@@ -277,165 +363,68 @@ Create a review packet:
   --end-frame 140
 ```
 
-Then open:
+Open:
 
 ```text
 annotations/my_review_packet/bbox_annotator.html
 ```
 
-The browser annotator writes CSV rows with:
+Labels:
 
-```text
-frame_id,image,x1,y1,x2,y2,review_status,visibility,occluded,label,notes
-```
+| Label | Meaning |
+|---|---|
+| `drone` | Real target box |
+| `negative` | Reviewed frame where the drone is absent |
 
-Use:
+Use empty box coordinates for negatives.
 
-- `label=drone` for real target boxes
-- `label=negative` for reviewed frames where the drone is gone
-- empty box coordinates for negatives
-
----
-
-## 🏋️ Train A New Detector
-
-V3/V4 training is gated because the current blocker is semantic confusion:
-the model often detects the drone geometrically but labels it `airplane`.
-Do not launch a full 80-epoch run until these docs are reviewed:
-
-```text
-docs/DATASET_INTEGRATION_REPORT.md
-docs/V3_EVALUATION_SUMMARY.md
-docs/V3_TRAINING_RESULTS.md
-docs/NEXT_DATA_ANNOTATION_PLAN.md
-```
-
-The new staged configs are:
-
-```text
-configs/training/airborne_yolo11_stage1_drone_only.yaml
-configs/training/airborne_yolo11_stage2_multiclass.yaml
-configs/training/airborne_yolo11_stage3_camhard_finetune.yaml
-```
-
-Stage 1 is diagnostic/pretraining only and must not be promoted.
-
-Legacy v1/v2 flow:
-
-Build a YOLO dataset:
-
-```powershell
-.\.venv\Scripts\python.exe scripts/prepare_airborne_training_set.py `
-  --manifest configs/training/airborne_dataset_manifest.yaml `
-  --out-dir data/training/airborne_yolo_v3 `
-  --link-mode copy
-```
-
-Train:
-
-```powershell
-.\.venv\Scripts\python.exe scripts/train_airborne_yolo.py `
-  --config configs/training/airborne_yolo11.yaml
-```
-
-For the dedicated training env:
-
-```powershell
-.\.venv_train\Scripts\python.exe scripts/train_airborne_yolo.py `
-  --config configs/training/airborne_yolo11.yaml `
-  --workers 8 `
-  --batch 8
-```
-
-On an RTX 5070 Ti, if VRAM usage is low and the run is stable, test
-`--batch 12` and then `--batch 16`. If CUDA runs out of memory, go back down.
-
-Training runs land under:
-
-```text
-data/training/runs/
-```
-
-Promote only curated checkpoints into:
-
-```text
-data/models/
-```
-
-Then commit them with Git LFS.
-
-Resume the current v2 run from an Administrator PowerShell:
-
-```powershell
-cd "C:\Users\Ali\Desktop\SKY"
-powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\resume_yolo_v2_training.ps1" -Workers 8
-```
-
-If Windows dataloader workers fail, use `-Workers 0` only as the slow fallback.
-Full notes are in [`docs/TRAINING_RUNBOOK.md`](docs/TRAINING_RUNBOOK.md).
-
-Monitor training with:
-
-```powershell
-nvidia-smi -l 5
-```
-
-Task Manager's default GPU graph often shows 3D/video engines, not CUDA
-compute, so it can under-report ML utilization.
-
----
-
-## 🗂️ Repo Map
+## Repo Map
 
 | Path | Purpose |
 |---|---|
 | `configs/` | Runtime profiles and training configs |
 | `data/models/` | Curated Git LFS model checkpoints |
 | `annotations/` | Human-reviewed sparse ground truth packets |
+| `skyscouter/io/` | Video, image, and live camera frame sources |
 | `skyscouter/perception/` | Detector backends |
 | `skyscouter/tracking/` | Tracker logic |
-| `skyscouter/output/` | Overlay, JSONL, reports |
-| `scripts/run_pipeline.py` | Main replay command |
-| `scripts/evaluate_hard_case.py` | Detector/tracker hard-case scorer |
-| `scripts/prepare_drone_annotations.py` | Frame extraction + browser annotation UI |
+| `skyscouter/output/` | Overlay video, raw video, JSONL, reports |
+| `scripts/run_pipeline.py` | Main pipeline command |
+| `scripts/run_jetson_live_pipeline.py` | Full Jetson live runtime launcher |
+| `scripts/export_tensorrt.py` | Jetson TensorRT export helper |
 | `scripts/train_airborne_yolo.py` | YOLO training wrapper |
-| `docs/MVP_FLIGHT_TEST_DEPLOYMENT_PLAN.md` | Jetson USB-camera deployment and log-only flight-test plan |
+| `docs/` | Deployment, training, and evaluation notes |
 | `tests/` | Regression tests |
 
----
+## Next Steps
 
-## ✅ Run Tests
+Immediate Jetson work:
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests -v
-```
+1. Pull `feature/jetson-live-camera-runtime` on the Jetson.
+2. Confirm `git lfs pull` downloads v2 weights.
+3. Run the full PyTorch live pipeline.
+4. Export TensorRT on the Jetson.
+5. Run the full TensorRT live pipeline.
+6. Review `raw_camera.mp4`, `annotated.mp4`, `target_states.jsonl`,
+   `guidance_hints.jsonl`, and `manifest.json`.
 
-Fast tracker-only check:
+Next product work:
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_single_target_tracker.py -v
-```
+1. Calibrate the real USB camera.
+2. Collect log-only real-air footage.
+3. Annotate 100 to 200 local Mavic-style frames before Stage 3.
+4. Expand to 300 to 1,000 local labelled frames before sandbox readiness.
+5. Train/evaluate V3/V4 against v2, especially drone-to-airplane confusion.
+6. Keep false-lock negatives at zero.
 
----
+## Safety Rules
 
-## ⚠️ What Is Ignored
+- No autonomous chase.
+- No flight-controller commands.
+- No ESP32 command relay.
+- No payload commands.
+- No safety claims from review-only mode.
+- Do not display numeric GSD unless a real range source exists.
+- If the model misses or labels incorrectly, report it plainly.
 
-These stay out of normal Git:
-
-| Path | Why |
-|---|---|
-| `data/videos/` | large local footage |
-| `data/outputs/` | generated reports/videos |
-| `data/training/` | rebuildable training datasets/runs |
-| `Ultralytics/` | local settings/cache |
-| random `*.pt` outside `data/models/` | avoid accidental checkpoint spam |
-
-Curated `data/models/**/*.pt` files are the exception and are tracked by Git LFS.
-
----
-
-## 🧭 Engineering Rule
-
-No hardcoded boxes. No filename tricks. No fake detections. If the model misses, the report should say so plainly.
-
-That is how this project stays useful.
+SkyScouter is useful only if the logs tell the truth.

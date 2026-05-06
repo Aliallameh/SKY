@@ -1,6 +1,6 @@
 # MVP Flight-Test Deployment Plan
 
-Last updated: 2026-05-02
+Last updated: 2026-05-05
 
 This is the handoff plan for moving SkyScouter from bench replay to Jetson
 Orin Nano Super shadow testing on the MVP drone.
@@ -23,10 +23,15 @@ Implemented today:
   `data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt`.
 - V3 fine-tune plan for the local hard-case semantic failure.
 
+Implemented on the Jetson deployment branch:
+
+- Live USB camera frame source through OpenCV (`source.type: opencv_camera`).
+- Jetson/TensorRT export script: `scripts/export_tensorrt.py`.
+- Detector backend benchmark script: `scripts/benchmark_detector_backend.py`.
+- Jetson setup runbook: `docs/JETSON_ORIN_NANO_SETUP.md`.
+
 Not implemented today:
 
-- Live USB camera frame source.
-- Jetson/TensorRT export script and benchmark harness.
 - Camera calibration capture/calibrate/review tooling.
 - MAVLink or ESP32 command transport.
 - Real range estimation or meter-per-pixel GSD.

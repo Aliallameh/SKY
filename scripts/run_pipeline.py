@@ -35,8 +35,8 @@ from skyscouter.utils.config_loader import load_config
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Skyscouter Phase 1 pipeline runner")
-    p.add_argument("--video", required=True,
-                   help="Path to input video file (or image folder if source.type=image_folder)")
+    p.add_argument("--video", default=None,
+                   help="Path to input video file or image folder. Not needed for source.type=opencv_camera.")
     p.add_argument("--config", required=True, help="Path to YAML config")
     p.add_argument("--output", required=True, help="Output directory for this run")
     p.add_argument("--run-id", default=None, help="Optional run identifier")

@@ -1,0 +1,31 @@
+# SkyScouter Jetson runtime requirements
+#
+# Use this after installing the JetPack-matched NVIDIA PyTorch/torchvision
+# wheels or NVIDIA container for your Jetson. Do not use the Windows/CUDA 12.8
+# workstation requirements file as the source of truth on Jetson.
+#
+# Recommended order on Jetson:
+#   python3 -m venv .venv_jetson --system-site-packages
+#   source .venv_jetson/bin/activate
+#   python -m pip install --upgrade pip setuptools wheel
+#   python -m pip install -r requirements-jetson.txt
+
+numpy>=1.23,<3
+PyYAML>=6.0,<7
+pillow>=10,<13
+matplotlib>=3.7,<4
+pandas>=2.0,<3
+scipy>=1.10,<2
+tqdm>=4.66,<5
+psutil>=5.9,<8
+
+# OpenCV is often installed by JetPack/apt as python3-opencv. If your venv
+# cannot import cv2, install opencv-python-headless manually or recreate the
+# venv with --system-site-packages.
+opencv-python-headless>=4.7,<5
+
+# Install PyTorch and torchvision from NVIDIA's Jetson channel first.
+# Ultralytics should see that Jetson PyTorch is already installed.
+ultralytics>=8.4,<8.5
+
+-e .

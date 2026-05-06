@@ -122,6 +122,52 @@ Main outputs:
 
 ---
 
+## Jetson Orin Nano Deployment
+
+The current edge-deployment path uses the curated v2 model:
+
+```text
+data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt
+```
+
+On Jetson, pull Git LFS weights, install the JetPack-matched NVIDIA PyTorch
+stack, then export TensorRT locally:
+
+```bash
+python3 scripts/export_tensorrt.py \
+  --weights data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt \
+  --imgsz 1024 \
+  --batch 1 \
+  --device 0 \
+  --half
+```
+
+Then benchmark:
+
+```bash
+python3 scripts/benchmark_detector_backend.py \
+  --model data/models/yolo11s_airborne_aod4_antiuav300_v2/best.engine \
+  --source 0 \
+  --camera-width 1280 \
+  --camera-height 720 \
+  --camera-fps 30 \
+  --fourcc MJPG \
+  --imgsz 1024 \
+  --frames 300 \
+  --warmup 20
+```
+
+Full setup notes are in:
+
+```text
+docs/JETSON_ORIN_NANO_SETUP.md
+```
+
+TensorRT `.engine` files are local deployment artifacts and should not be
+committed.
+
+---
+
 ## 🎯 Current Model Weights
 
 The repo tracks these through Git LFS, not normal Git blobs:

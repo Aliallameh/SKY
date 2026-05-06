@@ -3,6 +3,11 @@
 # can run trained profiles. Ad-hoc checkpoints elsewhere remain ignored.
 *.pt
 *.pth
+*.engine
+*.onnx
+*.plan
+*.trt
+*.export_manifest.json
 !data/models/**/*.pt
 !data/models/**/*.pth
 
@@ -24,6 +29,8 @@ data/training/.ultralytics/
 # Training outputs
 runs/
 data/outputs/
+data/engines/
+data/models/**/exports/
 
 # Raw external datasets stay local.
 DATASETS/

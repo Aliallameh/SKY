@@ -206,7 +206,7 @@ approx_fps: roughly 28-30
 last_shape: (720, 1280, 3)
 ```
 
-Run the full preflight report before pipeline smoke:
+Optional preflight report:
 
 ```bash
 python3 scripts/dev/jetson_preflight_check.py \
@@ -268,25 +268,28 @@ python3 scripts/benchmark_detector_backend.py \
 
 Benchmark JSON is written under `data/outputs/benchmarks/`.
 
-## 6. Run Live USB Camera Pipeline
+## 6. Run Full Live USB Camera Pipeline
 
-Start with the PyTorch live-camera smoke profile before TensorRT:
-
-```bash
-python3 scripts/run_pipeline.py \
-  --config configs/jetson_live_camera_pytorch.yaml \
-  --output data/outputs/jetson_live_camera_pytorch_smoke
-```
-
-Or run the repeatable one-command smoke sequence:
+The non-smoke runtime entrypoint is:
 
 ```bash
-python3 scripts/dev/run_jetson_live_smoke.py
+python3 scripts/run_jetson_live_pipeline.py --backend tensorrt
 ```
 
-That profile reads 300 frames and writes:
+Use PyTorch before the TensorRT engine exists:
+
+```bash
+python3 scripts/run_jetson_live_pipeline.py --backend pytorch
+```
+
+The full runtime runs until the camera stops or the operator presses `Ctrl+C`.
+`Ctrl+C` is handled as a clean interruption: writers are closed and
+`manifest.json` is finalized with status `interrupted`.
+
+The full runtime writes:
 
 ```text
+raw_camera.mp4
 annotated.mp4
 target_states.jsonl
 guidance_hints.jsonl
@@ -294,7 +297,7 @@ diagnostics.csv
 manifest.json
 ```
 
-After TensorRT export passes, use the TensorRT deployment config:
+Direct TensorRT config command:
 
 ```bash
 python3 scripts/run_pipeline.py \
@@ -302,12 +305,12 @@ python3 scripts/run_pipeline.py \
   --output data/outputs/jetson_live_v2_engine
 ```
 
-For a bounded 300-frame TensorRT smoke, use:
+Direct PyTorch config command:
 
 ```bash
 python3 scripts/run_pipeline.py \
-  --config configs/jetson_live_camera_tensorrt_smoke.yaml \
-  --output data/outputs/jetson_live_camera_tensorrt_smoke
+  --config configs/jetson_live_camera_pytorch_full.yaml \
+  --output data/outputs/jetson_live_camera_pytorch_full
 ```
 
 The config uses:
@@ -345,6 +348,7 @@ Keep these in the output manifest or notes:
 - Camera device, resolution, FPS, pixel format, exposure/focus settings.
 - Lock-state distribution and semantic label distribution.
 - Any dropped-frame estimate or camera read failures.
+- Whether the run ended as `completed`, `interrupted`, or `failed`.
 
 ## Current Deployment Caveats
 

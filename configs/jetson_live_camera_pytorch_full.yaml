@@ -1,13 +1,10 @@
-# Jetson Orin Nano Super deployment profile for the v2 TensorRT engine.
+# Full Jetson live-camera runtime profile using the curated v2 PyTorch model.
 #
-# Build the engine on the Jetson:
-#   python3 scripts/export_tensorrt.py \
-#     --weights data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt \
-#     --imgsz 1024 \
-#     --half
+# Runs until the camera stops or the operator presses Ctrl+C. This is
+# log-only/advisory and sends no MAVLink/ESP32/actuator commands.
 
 schema_version: "skyscout.config.v1"
-profile_name: "deploy_jetson_yolo11s_airborne_v2_engine"
+profile_name: "jetson_live_camera_yolo11s_airborne_v2_pytorch_full"
 
 source:
   type: "live_camera"
@@ -24,7 +21,7 @@ source:
   strict: true
 
 camera:
-  calibration_id: "JETSON_USB_CAMERA_UNREVIEWED_v1"
+  calibration_id: "JETSON_4K_ZOOM_CAMERA_UNREVIEWED_v1"
   is_calibrated: false
   intrinsics:
     fx: null
@@ -36,7 +33,7 @@ camera:
 
 detector:
   backend: "yolo_ultralytics"
-  weights: "data/models/yolo11s_airborne_aod4_antiuav300_v2/best.engine"
+  weights: "data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt"
   input_size: 1024
   confidence_threshold: 0.25
   iou_threshold: 0.45
@@ -44,7 +41,7 @@ detector:
   fallback_keep_high_conf: false
   fallback_high_conf_threshold: 0.35
   device: "0"
-  model_version: "yolo11s_airborne_aod4_antiuav300_v2_tensorrt_fp16"
+  model_version: "yolo11s_airborne_aod4_antiuav300_v2_pytorch_live_full"
 
 tracker:
   backend: "single_target_kalman_lk"
@@ -60,7 +57,6 @@ tracker:
   ego_motion_compensation: false
 
 lock:
-  # Deployment profile stays semantic-safe: only actual drone labels can lock.
   acceptable_lock_labels: ["drone"]
   acquired_to_tracking_frames: 3
   tracking_to_locked_frames: 8
@@ -146,4 +142,4 @@ output:
   save_raw_detections: false
   save_diagnostics_csv: true
   save_manifest: true
-  annotated_video_fps: null
+  annotated_video_fps: 30.0

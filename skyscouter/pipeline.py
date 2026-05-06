@@ -34,6 +34,7 @@ from .output.target_state_writer import TargetStateJsonlWriter
 from .output.guidance_writer import GuidanceHintJsonlWriter
 from .output.bridge_writer import BridgeProposalJsonlWriter
 from .output.annotator import VideoAnnotator
+from .output.raw_video_recorder import RawVideoRecorder
 from .output.run_logger import RunLogger
 from .output.evaluation import DiagnosticsWriter, EvaluationCollector
 
@@ -50,6 +51,7 @@ class Pipeline:
         guidance_hint_writer: Optional[GuidanceHintJsonlWriter] = None,
         bridge_proposal_writer: Optional[BridgeProposalJsonlWriter] = None,
         annotator: Optional[VideoAnnotator] = None,
+        raw_video_recorder: Optional[RawVideoRecorder] = None,
         diagnostics_writer: Optional[DiagnosticsWriter] = None,
         evaluation_collector: Optional[EvaluationCollector] = None,
     ):
@@ -62,6 +64,7 @@ class Pipeline:
         self._guidance_writer = guidance_hint_writer
         self._bridge_writer = bridge_proposal_writer
         self._annotator = annotator
+        self._raw_video_recorder = raw_video_recorder
         self._diagnostics = diagnostics_writer
         self._evaluation = evaluation_collector
 
@@ -125,6 +128,8 @@ class Pipeline:
 
         for frame in self._source:
             t0 = time.perf_counter()
+            if self._raw_video_recorder is not None:
+                self._raw_video_recorder.write(frame.image_bgr)
 
             # 1. Detect
             try:

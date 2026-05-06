@@ -29,6 +29,7 @@ Implemented on the Jetson deployment/live-camera branches:
 - Jetson/TensorRT export script: `scripts/export_tensorrt.py`.
 - Detector backend benchmark script: `scripts/benchmark_detector_backend.py`.
 - Jetson preflight and live smoke scripts under `scripts/dev/`.
+- Full live runtime launcher: `scripts/run_jetson_live_pipeline.py`.
 - Jetson setup runbook: `docs/JETSON_ORIN_NANO_SETUP.md`.
 
 Not implemented today:
@@ -177,6 +178,7 @@ Flight outputs:
 - `manifest.json`
 - Jetson performance summary
 - live camera negotiated settings from `manifest.json`
+- clean shutdown status from `manifest.json`
 
 Post-flight report must include:
 

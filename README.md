@@ -157,7 +157,22 @@ python3 scripts/benchmark_detector_backend.py \
   --warmup 20
 ```
 
-For the verified USB camera smoke on the Jetson:
+For the full live camera pipeline on the Jetson:
+
+```bash
+python3 scripts/run_jetson_live_pipeline.py --backend tensorrt
+```
+
+Use PyTorch before the TensorRT engine exists:
+
+```bash
+python3 scripts/run_jetson_live_pipeline.py --backend pytorch
+```
+
+The runtime writes raw video, annotated video, target states, guidance hints,
+diagnostics, and a manifest. Press `Ctrl+C` to stop and finalize outputs.
+
+Optional camera-only diagnostics are available when needed:
 
 ```bash
 python3 scripts/dev/jetson_preflight_check.py
@@ -174,12 +189,6 @@ python3 scripts/dev/test_live_camera_source.py \
 python3 scripts/run_pipeline.py \
   --config configs/jetson_live_camera_pytorch.yaml \
   --output data/outputs/jetson_live_camera_pytorch_smoke
-```
-
-For the same sequence with one command:
-
-```bash
-python3 scripts/dev/run_jetson_live_smoke.py
 ```
 
 Full setup notes are in:

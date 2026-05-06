@@ -144,6 +144,7 @@ evaluation:
 
 output:
   save_annotated_video: true
+  save_raw_video: true
   save_target_states_jsonl: true
   save_raw_detections: false
   save_diagnostics_csv: true

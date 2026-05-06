@@ -28,6 +28,7 @@ from skyscouter.output.target_state_writer import TargetStateJsonlWriter
 from skyscouter.output.guidance_writer import GuidanceHintJsonlWriter
 from skyscouter.output.bridge_writer import BridgeProposalJsonlWriter
 from skyscouter.output.annotator import VideoAnnotator
+from skyscouter.output.raw_video_recorder import RawVideoRecorder
 from skyscouter.output.evaluation import DiagnosticsWriter, EvaluationCollector
 from skyscouter.pipeline import Pipeline
 from skyscouter.utils.config_loader import load_config
@@ -141,6 +142,7 @@ def main() -> int:
         out_dir = Path(args.output)
         out_dir.mkdir(parents=True, exist_ok=True)
         annotated_path = out_dir / "annotated.mp4"
+        raw_video_path = out_dir / "raw_camera.mp4"
         jsonl_path = out_dir / "target_states.jsonl"
         diagnostics_path = out_dir / "diagnostics.csv"
         eval_path = out_dir / "eval_report.json"
@@ -157,8 +159,18 @@ def main() -> int:
             )
             if out_cfg.get("save_annotated_video", True) else None
         )
+        raw_recorder = (
+            RawVideoRecorder(str(raw_video_path), w, h, fps=annot_fps)
+            if out_cfg.get("save_raw_video", False) else None
+        )
+        if raw_recorder is not None:
+            logger.set_artifact("raw_camera_video", str(raw_video_path))
+        if annotator is not None:
+            logger.set_artifact("annotated_video", str(annotated_path))
         writer_ctx = TargetStateJsonlWriter(str(jsonl_path)) \
             if out_cfg.get("save_target_states_jsonl", True) else None
+        if writer_ctx is not None:
+            logger.set_artifact("target_states_jsonl", str(jsonl_path))
         guidance_cfg = cfg.get("guidance", {})
         guidance_path = out_dir / "guidance_hints.jsonl"
         guidance_writer_ctx = GuidanceHintJsonlWriter(str(guidance_path)) \
@@ -169,9 +181,13 @@ def main() -> int:
             if bridge_cfg.get("enabled", False) and bridge_cfg.get("output_jsonl", True) else None
         diagnostics = DiagnosticsWriter(str(diagnostics_path)) \
             if out_cfg.get("save_diagnostics_csv", True) else None
+        if diagnostics is not None:
+            logger.set_artifact("diagnostics_csv", str(diagnostics_path))
         eval_cfg = cfg.get("evaluation", {})
         evaluator = EvaluationCollector(eval_cfg.get("gt_path")) \
             if eval_cfg.get("enabled", True) else None
+        if evaluator is not None:
+            logger.set_artifact("eval_report_json", str(eval_path))
 
         try:
             if writer_ctx is not None:
@@ -193,10 +209,16 @@ def main() -> int:
                 guidance_hint_writer=guidance_writer_ctx,
                 bridge_proposal_writer=bridge_writer_ctx,
                 annotator=annotator,
+                raw_video_recorder=raw_recorder,
                 diagnostics_writer=diagnostics,
                 evaluation_collector=evaluator,
             )
-            pipeline.run()
+            status = "completed"
+            try:
+                pipeline.run()
+            except KeyboardInterrupt:
+                status = "interrupted"
+                logger.warning("Pipeline interrupted by user; closing outputs cleanly")
         finally:
             if writer_ctx is not None:
                 writer_ctx.__exit__(None, None, None)
@@ -206,13 +228,15 @@ def main() -> int:
                 bridge_writer_ctx.__exit__(None, None, None)
             if annotator is not None:
                 annotator.close()
+            if raw_recorder is not None:
+                raw_recorder.close()
             if diagnostics is not None:
                 diagnostics.close()
             if evaluator is not None:
                 evaluator.write_report(str(eval_path))
             source.close()
 
-        logger.finalize(status="completed")
+        logger.finalize(status=status)
         print(f"\nRun complete. Outputs in: {out_dir}")
         return 0
 

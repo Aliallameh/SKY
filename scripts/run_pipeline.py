@@ -126,6 +126,10 @@ def main() -> int:
         w, h = source.get_resolution()
         fps = source.get_fps() or 30.0
         logger.info(f"Frame source: {source.get_source_id()}  resolution={w}x{h}  fps={fps:.2f}")
+        if hasattr(source, "get_negotiated_settings"):
+            source_metadata = source.get_negotiated_settings()
+            logger.set_source_metadata(source_metadata)
+            logger.info(f"Frame source negotiated settings: {source_metadata}")
 
         detector = build_detector(cfg["detector"])
         logger.info(f"Detector: {detector.get_model_version()} input_size={detector.get_input_size()}")

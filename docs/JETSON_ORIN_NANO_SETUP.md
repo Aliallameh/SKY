@@ -206,6 +206,22 @@ approx_fps: roughly 28-30
 last_shape: (720, 1280, 3)
 ```
 
+Run the full preflight report before pipeline smoke:
+
+```bash
+python3 scripts/dev/jetson_preflight_check.py \
+  --camera-device /dev/video0 \
+  --camera-index 0 \
+  --config configs/jetson_live_camera_pytorch.yaml
+```
+
+This writes:
+
+```text
+data/outputs/jetson_preflight_<timestamp>/preflight_report.json
+data/outputs/jetson_preflight_<timestamp>/preflight_report.md
+```
+
 ## 5. Benchmark `.pt` Versus `.engine`
 
 Replay benchmark:
@@ -262,6 +278,12 @@ python3 scripts/run_pipeline.py \
   --output data/outputs/jetson_live_camera_pytorch_smoke
 ```
 
+Or run the repeatable one-command smoke sequence:
+
+```bash
+python3 scripts/dev/run_jetson_live_smoke.py
+```
+
 That profile reads 300 frames and writes:
 
 ```text
@@ -278,6 +300,14 @@ After TensorRT export passes, use the TensorRT deployment config:
 python3 scripts/run_pipeline.py \
   --config configs/deploy_jetson_yolo11s_v2_engine.yaml \
   --output data/outputs/jetson_live_v2_engine
+```
+
+For a bounded 300-frame TensorRT smoke, use:
+
+```bash
+python3 scripts/run_pipeline.py \
+  --config configs/jetson_live_camera_tensorrt_smoke.yaml \
+  --output data/outputs/jetson_live_camera_tensorrt_smoke
 ```
 
 The config uses:
@@ -309,6 +339,8 @@ Keep these in the output manifest or notes:
 - Jetson model and JetPack/L4T version.
 - PyTorch, Ultralytics, TensorRT versions.
 - Model path and model SHA/export manifest.
+- Live camera negotiated settings from `manifest.json`:
+  device index, backend, FOURCC, width, height, FPS, warmup frames, max frames.
 - `.pt` FPS/latency and `.engine` FPS/latency.
 - Camera device, resolution, FPS, pixel format, exposure/focus settings.
 - Lock-state distribution and semantic label distribution.

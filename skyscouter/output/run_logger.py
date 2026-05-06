@@ -35,6 +35,7 @@ class RunLogger:
             },
             "config": None,
             "video_path": None,
+            "source_metadata": None,
             "frame_count": 0,
             "detections_total": 0,
             "tracks_created": 0,
@@ -89,6 +90,9 @@ class RunLogger:
 
     def set_video_path(self, path: Optional[str]) -> None:
         self._manifest["video_path"] = path
+
+    def set_source_metadata(self, metadata: Dict[str, Any]) -> None:
+        self._manifest["source_metadata"] = metadata
 
     def set_artifact(self, name: str, path: Optional[str]) -> None:
         self._manifest.setdefault("artifacts", {})

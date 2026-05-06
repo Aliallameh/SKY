@@ -28,6 +28,7 @@ Implemented on the Jetson deployment/live-camera branches:
 - Live USB camera frame source through OpenCV/V4L2 (`source.type: live_camera`).
 - Jetson/TensorRT export script: `scripts/export_tensorrt.py`.
 - Detector backend benchmark script: `scripts/benchmark_detector_backend.py`.
+- Jetson preflight and live smoke scripts under `scripts/dev/`.
 - Jetson setup runbook: `docs/JETSON_ORIN_NANO_SETUP.md`.
 
 Not implemented today:
@@ -175,6 +176,7 @@ Flight outputs:
 - `diagnostics.csv`
 - `manifest.json`
 - Jetson performance summary
+- live camera negotiated settings from `manifest.json`
 
 Post-flight report must include:
 

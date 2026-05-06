@@ -160,6 +160,8 @@ python3 scripts/benchmark_detector_backend.py \
 For the verified USB camera smoke on the Jetson:
 
 ```bash
+python3 scripts/dev/jetson_preflight_check.py
+
 python3 scripts/dev/test_live_camera_source.py \
   --device-index 0 \
   --width 1280 \
@@ -172,6 +174,12 @@ python3 scripts/dev/test_live_camera_source.py \
 python3 scripts/run_pipeline.py \
   --config configs/jetson_live_camera_pytorch.yaml \
   --output data/outputs/jetson_live_camera_pytorch_smoke
+```
+
+For the same sequence with one command:
+
+```bash
+python3 scripts/dev/run_jetson_live_smoke.py
 ```
 
 Full setup notes are in:

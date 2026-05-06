@@ -30,6 +30,7 @@ DATASETS/
 
 # Local training logs (UTF-16 PowerShell tee output, can grow into tens of MB)
 data/training/*.log
+data/training/logs/
 data/training/runs/
 
 # Video files (large, use separately)

@@ -1,6 +1,6 @@
 # V3 Evaluation Summary
 
-Last updated: 2026-05-04
+Last updated: 2026-05-05
 
 ## Current V2 Baseline
 
@@ -151,6 +151,83 @@ Result:
 | missed | 0 |
 
 The v2 prototype Mavic-like drone-to-airplane confusion rate is `8 / 20 = 40%`.
+
+## Full Mavic-Like Held-Out Baseline
+
+This is the current held-out validation gate for Mavic-like VisioDECT samples.
+It is larger than the original 20-sample prototype and must not be used for
+training.
+
+Dataset:
+
+```text
+data/training/validation_slices/visiodect_mavic_like_full
+```
+
+Held-out group:
+
+```text
+Mavic_Air_sunny
+```
+
+Dataset validation:
+
+| Metric | Value |
+|---|---:|
+| Images | 1,191 |
+| Drone boxes | 1,191 |
+| Validation errors | 0 |
+| Validation warnings | 0 |
+| Small boxes | 606 |
+| Medium boxes | 585 |
+
+V2 command:
+
+```powershell
+$env:YOLO_CONFIG_DIR=(Resolve-Path data\training\.ultralytics).Path
+.\.venv_train\Scripts\python.exe scripts\evaluate_yolo_semantic_confusion.py `
+  --model data\models\yolo11s_airborne_aod4_antiuav300_v2\best.pt `
+  --data data\training\validation_slices\visiodect_mavic_like_full\data.yaml `
+  --out data\training\validation_slices\visiodect_mavic_like_full\v2_semantic_confusion_conf025.json `
+  --split val --conf 0.25 --imgsz 1024
+```
+
+Quick V3 command:
+
+```powershell
+$env:YOLO_CONFIG_DIR=(Resolve-Path data\training\.ultralytics).Path
+.\.venv_train\Scripts\python.exe scripts\evaluate_yolo_semantic_confusion.py `
+  --model data\training\runs\yolo11s_airborne_v3_finetune_quick\weights\best.pt `
+  --data data\training\validation_slices\visiodect_mavic_like_full\data.yaml `
+  --out data\training\validation_slices\visiodect_mavic_like_full\v3_quick_semantic_confusion_conf025.json `
+  --split val --conf 0.25 --imgsz 1024
+```
+
+Result:
+
+| Metric | V2 baseline | Quick V3 |
+|---|---:|---:|
+| GT drone boxes | 1,191 | 1,191 |
+| Matched as drone | 882 | 728 |
+| Matched as airplane | 228 | 285 |
+| Missed | 81 | 178 |
+| Drone-to-airplane confusion | 19.14% | 23.93% |
+| Geometric recall, small | 89.60% | 78.71% |
+| Semantic drone recall, small | 78.22% | 76.24% |
+| Geometric recall, medium | 96.92% | 91.62% |
+| Semantic drone recall, medium | 69.74% | 45.47% |
+
+Decision:
+
+```text
+Quick V3 is rejected as a base for promotion or Stage 3.
+```
+
+It fixed the tiny local hard-case packet but worsened the full Mavic-like
+held-out validation slice and also produced worse fresh-video continuity under
+strict overlay settings. The next promotion-eligible fine-tune should start
+from V2 best weights unless a later Stage 2 model beats V2 on this same held-out
+slice and on local sparse GT.
 
 ## Fresh Video Proxy Baseline
 

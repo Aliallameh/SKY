@@ -1,6 +1,6 @@
 # Dataset Integration Report
 
-Last updated: 2026-05-04
+Last updated: 2026-05-05
 
 ## Purpose
 
@@ -94,6 +94,96 @@ Mavic_Air_sunny
 
 This slice must not leak into Stage 1, Stage 2, or Stage 3 training.
 
+Full held-out validation slice:
+
+```text
+data/training/validation_slices/visiodect_mavic_like_full
+```
+
+Current full held-out group:
+
+```text
+Mavic_Air_sunny
+```
+
+Full Mavic-like slice status:
+
+| Metric | Value |
+|---|---:|
+| Images | 1,191 |
+| Drone boxes | 1,191 |
+| Validation | PASS |
+| Errors | 0 |
+| Warnings | 0 |
+| Small boxes | 606 |
+| Medium boxes | 585 |
+
+Full VisioDECT converted source:
+
+```text
+data/training/converted/visiodect
+```
+
+| Metric | Value |
+|---|---:|
+| Images | 18,226 |
+| Drone boxes | 18,227 |
+| Validation | PASS |
+| Errors | 0 |
+| Warnings | 0 |
+| Tiny boxes | 1,647 |
+| Small boxes | 11,445 |
+| Medium boxes | 5,135 |
+
+## Full Conversion Status
+
+All raw detection sources needed for Stage 1 and Stage 2 have now been
+mechanically converted and validated. These converted folders are generated
+artifacts and remain ignored by git.
+
+| Dataset | Output | Images | Objects | Validation | Notes |
+|---|---|---:|---:|---|---|
+| Anti-UAV-RGBT | `data/training/converted/anti_uav_rgbt` | 19,250 | 18,727 | PASS | 523 empty negatives |
+| DUT-Anti-UAV | `data/training/converted/dut_anti_uav` | 10,000 | 10,108 | PASS | 1 duplicate warning |
+| VisioDECT | `data/training/converted/visiodect` | 18,226 | 18,227 | PASS | excludes held-out `Mavic_Air_sunny` |
+| AOD-4 | `data/training/converted/aod4` | 22,516 | 31,598 | PASS | balanced multiclass conversion |
+
+Full preview folders:
+
+```text
+data/training/previews/anti_uav_rgbt_full
+data/training/previews/dut_anti_uav_full
+data/training/previews/visiodect_full
+data/training/previews/aod4_full
+data/training/previews/visiodect_mavic_like_full
+```
+
+## Stage 1 Dataset Status
+
+Merged Stage 1 drone-only dataset:
+
+```text
+data/training/airborne_stage1_drone_only
+```
+
+| Metric | Value |
+|---|---:|
+| Images | 47,476 |
+| Drone boxes | 47,062 |
+| Empty labels | 526 |
+| Validation | PASS |
+| Errors | 0 |
+| Warnings | 0 |
+| Tiny boxes | 6,878 |
+| Small boxes | 20,322 |
+| Medium boxes | 19,862 |
+
+Preview folder:
+
+```text
+data/training/previews/airborne_stage1_drone_only
+```
+
 ## Implemented Scripts
 
 ```text
@@ -138,8 +228,7 @@ Do not run full Stage 1/2/3 training yet.
 
 Remaining gates:
 
-- Human visual review of prototype previews.
-- Full conversion after preview approval.
+- Human visual review of full preview folders.
 - AOD-4 drone-vs-airplane visual audit, especially tiny objects.
-- Full Mavic-like held-out slice creation and v2 baseline on that full slice.
+- Full Mavic-like held-out slice creation and v2 baseline on that full slice. **Done for VisioDECT Mavic_Air_sunny.**
 - Local Mavic-style annotation: at least 100-200 frames before Stage 3.

@@ -1,6 +1,6 @@
 # V3 Training Results
 
-Last updated: 2026-05-04
+Last updated: 2026-05-05
 
 ## Status
 
@@ -92,7 +92,26 @@ data/training/runs/yolo11s_airborne_v3_finetune_quick/weights/best.pt
 data/training/runs/yolo11s_airborne_v3_finetune_quick/weights/last.pt
 ```
 
-Promotion status: not promoted. The local semantic result is strong, but this quick run still needs fresh-video sparse GT, Mavic-like validation, and negative/false-lock review before becoming a product model.
+Promotion status: rejected for promotion and rejected as a Stage 3 base.
+
+The local semantic result is strong on the corrected hard-case packet, but the
+model does not generalize cleanly:
+
+- strict `Video_1` overlay continuity regressed versus V2;
+- full held-out Mavic-like validation got worse versus V2.
+
+Full held-out Mavic-like result at `conf=0.25`:
+
+| Metric | V2 baseline | Quick V3 |
+|---|---:|---:|
+| GT drone boxes | 1,191 | 1,191 |
+| Matched as drone | 882 | 728 |
+| Matched as airplane | 228 | 285 |
+| Missed | 81 | 178 |
+
+Do not use `data/training/runs/yolo11s_airborne_v3_finetune_quick/weights/best.pt`
+as a base for the next fine-tune. Use V2 best weights unless Stage 2 beats V2
+on both local sparse GT and the full Mavic-like held-out slice.
 
 ## Implemented Training Configs
 
@@ -248,19 +267,68 @@ $env:YOLO_CONFIG_DIR=(Resolve-Path data\training\.ultralytics).Path
 
 ## Next Training Step
 
-Review the generated previews. If boxes are visually correct, run full conversions into:
+The immediate next safe step is still dataset-gated, not another quick fine-tune.
+VisioDECT full conversion and the full Mavic-like held-out slice are complete:
+
+```text
+data/training/converted/visiodect
+data/training/validation_slices/visiodect_mavic_like_full
+```
+
+Next, review the generated previews and complete the remaining full conversions:
 
 ```text
 data/training/converted/anti_uav_rgbt
 data/training/converted/dut_anti_uav
-data/training/converted/visiodect
 data/training/converted/aod4
 ```
 
-Then build Stage 1:
+Current status: these full conversions are complete and validate cleanly.
+
+Merged Stage 1 dataset is also built and validated:
+
+```text
+data/training/airborne_stage1_drone_only
+```
+
+| Metric | Value |
+|---|---:|
+| Images | 47,476 |
+| Drone boxes | 47,062 |
+| Empty labels | 526 |
+| Validation errors | 0 |
+| Validation warnings | 0 |
+
+Command used to build Stage 1:
 
 ```powershell
 .\.venv_train\Scripts\python.exe scripts\build_staged_airborne_dataset.py --stage stage1
 ```
 
-Do not launch full Stage 1 until that merged dataset validates and previews correctly.
+Stage 1 full training was launched after the full dataset validated and the
+initial aggressive dataloader run exposed a Windows worker RAM failure from
+`mixup`.
+
+The Stage 1 config was changed to:
+
+```text
+mixup: 0.0
+```
+
+Active full-training command:
+
+```powershell
+$env:YOLO_CONFIG_DIR=(Resolve-Path data\training\.ultralytics).Path
+.\.venv_train\Scripts\python.exe scripts\train_airborne_yolo.py `
+  --config configs\training\airborne_yolo11_stage1_drone_only.yaml `
+  --batch 16 --workers 4 `
+  --run-name yolo11s_airborne_stage1_drone_only_b16w4_nomix
+```
+
+Run folder:
+
+```text
+data/training/runs/yolo11s_airborne_stage1_drone_only_b16w4_nomix
+```
+
+Stage 1 remains diagnostic/pretraining only and must not be promoted directly.

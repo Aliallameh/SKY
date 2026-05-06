@@ -1,6 +1,6 @@
 # V3 Training Results
 
-Last updated: 2026-05-05
+Last updated: 2026-05-06
 
 ## Status
 
@@ -305,7 +305,7 @@ Command used to build Stage 1:
 .\.venv_train\Scripts\python.exe scripts\build_staged_airborne_dataset.py --stage stage1
 ```
 
-Stage 1 full training was launched after the full dataset validated and the
+Stage 1 full training completed after the full dataset validated and the
 initial aggressive dataloader run exposed a Windows worker RAM failure from
 `mixup`.
 
@@ -315,7 +315,7 @@ The Stage 1 config was changed to:
 mixup: 0.0
 ```
 
-Active full-training command:
+Full-training command:
 
 ```powershell
 $env:YOLO_CONFIG_DIR=(Resolve-Path data\training\.ultralytics).Path
@@ -330,5 +330,34 @@ Run folder:
 ```text
 data/training/runs/yolo11s_airborne_stage1_drone_only_b16w4_nomix
 ```
+
+Result:
+
+| Metric | Value |
+|---|---:|
+| Completed epochs | 80 / 80 |
+| Best mAP50-95 epoch | 64 |
+| Best mAP50-95 | 0.56659 |
+| Best-epoch mAP50 | 0.92359 |
+| Final precision | 0.93467 |
+| Final recall | 0.88599 |
+| Final mAP50 | 0.91821 |
+| Final mAP50-95 | 0.56024 |
+
+Weights:
+
+```text
+data/training/runs/yolo11s_airborne_stage1_drone_only_b16w4_nomix/weights/best.pt
+data/training/runs/yolo11s_airborne_stage1_drone_only_b16w4_nomix/weights/last.pt
+```
+
+Evaluation decision:
+
+- Stage 1 strongly improves drone recall on the corrected local hard case and
+  the held-out Mavic-like drone slice.
+- Stage 1 is a drone-only detector, so it collapses many non-drone AOD-4
+  aircraft/birds into `drone`.
+- Therefore Stage 1 remains diagnostic/pretraining only and must not be
+  promoted directly.
 
 Stage 1 remains diagnostic/pretraining only and must not be promoted directly.

@@ -1,6 +1,6 @@
 # V3 Evaluation Summary
 
-Last updated: 2026-05-05
+Last updated: 2026-05-06
 
 ## Current V2 Baseline
 
@@ -228,6 +228,97 @@ held-out validation slice and also produced worse fresh-video continuity under
 strict overlay settings. The next promotion-eligible fine-tune should start
 from V2 best weights unless a later Stage 2 model beats V2 on this same held-out
 slice and on local sparse GT.
+
+## Stage 1 Drone-Only Evaluation
+
+Model:
+
+```text
+data/training/runs/yolo11s_airborne_stage1_drone_only_b16w4_nomix/weights/best.pt
+```
+
+Stage 1 is drone-only pretraining, not a promotion candidate. It is evaluated
+here to decide whether it is useful as a Stage 2 base.
+
+### Local Hard Case
+
+Command outputs:
+
+```text
+data/outputs/stage1_eval_20260506/hard_case_v2
+data/outputs/stage1_eval_20260506/hard_case_stage1
+```
+
+| Metric | V2 baseline | Stage 1 |
+|---|---:|---:|
+| Positive drone frames | 54 | 54 |
+| Negative frames | 7 | 7 |
+| Detector geometric hit rate | 42.59% | 98.15% |
+| Detector semantic drone hit rate | 1.85% | 98.15% |
+| Matched as drone | 1 | 53 |
+| Matched as airplane | 22 | 0 |
+| Missed | 31 | 1 |
+| Tracker geometric hit rate | 53.70% | 100.00% |
+| Tracker semantic drone hit rate | 0.00% | 100.00% |
+| Detector negative false positives | 0 | 0 |
+| Tracker negative false positives | 0 | 1 |
+| Tracker stale frames | 6 | 2 |
+
+Stage 1 fixes the local semantic failure, but it still publishes one
+tracker-carried negative frame (`134`). That is not a detector false positive,
+but it matters for lock safety.
+
+### Full Mavic-Like Held-Out Slice
+
+Command outputs:
+
+```text
+data/outputs/stage1_eval_20260506/mavic_like_v2.json
+data/outputs/stage1_eval_20260506/mavic_like_stage1.json
+```
+
+| Metric | V2 baseline | Stage 1 |
+|---|---:|---:|
+| GT drone boxes | 1,191 | 1,191 |
+| Matched as drone | 882 | 1,191 |
+| Matched as airplane | 228 | 0 |
+| Missed | 81 | 0 |
+| Drone-to-airplane confusion | 19.14% | 0.00% |
+| Small semantic drone recall | 78.22% | 100.00% |
+| Medium semantic drone recall | 69.74% | 100.00% |
+
+Exact image-hash comparison found `0` duplicate images between the Stage 1
+training images and the full Mavic-like held-out slice. However, the Stage 1
+training set does include related VisioDECT Mavic Air cloudy samples while the
+held-out slice is Mavic Air sunny, so this is a useful domain result but not a
+complete real-camera proof.
+
+### AOD-4 Multiclass False-Positive Check
+
+Command outputs:
+
+```text
+data/outputs/stage1_eval_20260506/aod4_val_v2.json
+data/outputs/stage1_eval_20260506/aod4_val_stage1.json
+```
+
+| Metric | V2 baseline | Stage 1 |
+|---|---:|---:|
+| AOD-4 val images | 4,514 | 4,514 |
+| GT drone boxes | 1,602 | 1,602 |
+| Matched GT drones as drone | 1,563 | 1,503 |
+| Missed GT drones | 36 | 99 |
+| Bird-to-drone false matches | 1 | 280 |
+| Airplane-to-drone false matches | 0 | 754 |
+| Unmatched drone predictions | 113 | 879 |
+
+Decision:
+
+```text
+Do not promote Stage 1.
+Use it only as a candidate Stage 2 base, where AOD-4/multiclass training must
+re-teach bird and aircraft rejection before any Stage 3 local fine-tune.
+```
 
 ## Fresh Video Proxy Baseline
 

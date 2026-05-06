@@ -19,18 +19,18 @@ dataset:
 
 model:
   family: "ultralytics_yolo"
-  base_weights: "data/training/runs/yolo11s_airborne_stage1_drone_only/weights/best.pt"
+  base_weights: "data/training/runs/yolo11s_airborne_stage1_drone_only_b16w4_nomix/weights/best.pt"
   image_size: 1024
   pretrained: true
 
 training:
   epochs: 80
-  batch: 8
+  batch: 16
   patience: 20
-  workers: 8
+  workers: 4
   device: "auto"
   project: "data/training/runs"
-  run_name: "yolo11s_airborne_stage2_multiclass"
+  run_name: "yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix"
   optimizer: "auto"
   close_mosaic: 10
   seed: 42
@@ -49,7 +49,10 @@ augmentation:
   perspective: 0.0
   fliplr: 0.5
   mosaic: 0.7
-  mixup: 0.05
+  # Keep mixup off on Windows at 1024px. Stage 1 already hit DataLoader worker
+  # RAM failures from mixup; confuser learning here should come from real
+  # AOD-4/VisioDECT/Anti-UAV/DUT examples, not blend augmentation.
+  mixup: 0.0
   copy_paste: 0.0
 
 decision_gate_for_stage3_base:

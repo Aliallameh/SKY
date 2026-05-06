@@ -213,6 +213,44 @@ Preview folder:
 data/training/previews/airborne_stage1_drone_only
 ```
 
+## Stage 2 Dataset Status
+
+Capped Stage 2 dataset:
+
+```text
+data/training/airborne_stage2_multiclass
+```
+
+Build policy:
+
+- AOD-4 is capped to 6,000 images.
+- Anti-UAV-RGBT is capped to 5,000 images.
+- DUT-Anti-UAV is capped to 5,000 images.
+- VisioDECT is capped to 12,000 images.
+- AOD-4 images containing `drone` are excluded by default.
+
+| Metric | Value |
+|---|---:|
+| Images | 28,000 |
+| Objects | 31,093 |
+| Drone boxes | 21,892 |
+| Bird boxes | 2,913 |
+| Airplane boxes | 3,095 |
+| Helicopter boxes | 3,193 |
+| Empty labels | 419 |
+| Validation | PASS |
+| Errors | 0 |
+| Warnings | 0 |
+| AOD-4 images skipped because they contained `drone` | 2,981 |
+
+Preview folder:
+
+```text
+data/training/previews/airborne_stage2_multiclass
+```
+
+Rendered previews: 360.
+
 ## Implemented Scripts
 
 ```text

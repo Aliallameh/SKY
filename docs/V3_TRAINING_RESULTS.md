@@ -329,6 +329,58 @@ Result: PASS, 35 images, 45 objects, 0 validation errors, 0 warnings. The
 builder skipped 12 AOD-4 images containing excluded `drone` labels while
 filling the 20-image AOD-4 cap, proving the default exclusion is active.
 
+Full capped Stage 2 build:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts\build_staged_airborne_dataset.py `
+  --stage stage2 `
+  --link-mode copy `
+  --cap aod4=6000 `
+  --cap anti_uav_rgbt=5000 `
+  --cap dut_anti_uav=5000 `
+  --cap visiodect=12000
+```
+
+Result:
+
+| Metric | Value |
+|---|---:|
+| Images | 28,000 |
+| Objects | 31,093 |
+| Drone objects | 21,892 |
+| Bird objects | 2,913 |
+| Airplane objects | 3,095 |
+| Helicopter objects | 3,193 |
+| Empty labels | 419 |
+| Tiny boxes | 3,898 |
+| Small boxes | 11,767 |
+| Medium boxes | 15,428 |
+| AOD-4 images skipped because they contained `drone` | 2,981 |
+
+Validation:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts\validate_yolo_dataset.py `
+  --data data\training\airborne_stage2_multiclass\data.yaml
+```
+
+Result: PASS, 0 errors, 0 warnings.
+
+Previews:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts\preview_yolo_labels.py `
+  --data data\training\airborne_stage2_multiclass\data.yaml `
+  --out-dir data\training\previews\airborne_stage2_multiclass `
+  --random-per-split 50 `
+  --per-class 40 `
+  --tiny 50
+```
+
+Rendered 360 previews. Spot checks show clean Mavic-like drone boxes, usable
+DUT tiny-drone boxes, and AOD-4 airplane/helicopter confusers. AOD-4 bird
+quality is mixed, which supports the capped-confuser policy.
+
 Merged Stage 1 dataset is also built and validated:
 
 ```text

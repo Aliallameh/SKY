@@ -23,9 +23,9 @@ Implemented today:
   `data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt`.
 - V3 fine-tune plan for the local hard-case semantic failure.
 
-Implemented on the Jetson deployment branch:
+Implemented on the Jetson deployment/live-camera branches:
 
-- Live USB camera frame source through OpenCV (`source.type: opencv_camera`).
+- Live USB camera frame source through OpenCV/V4L2 (`source.type: live_camera`).
 - Jetson/TensorRT export script: `scripts/export_tensorrt.py`.
 - Detector backend benchmark script: `scripts/benchmark_detector_backend.py`.
 - Jetson setup runbook: `docs/JETSON_ORIN_NANO_SETUP.md`.
@@ -39,6 +39,8 @@ Not implemented today:
 Known MVP choices:
 
 - Camera connection: **USB**.
+- Camera: **4K ZOOM CAMERA** at `/dev/video0`.
+- First live capture mode: **MJPG 1280x720 30 fps** through V4L2.
 - First flight mode: **log-only shadow mode**.
 - Range/GSD: **calibration-only for now**. Show angular scale; show GSD as
   `n/a` until a real range source exists.
@@ -48,9 +50,10 @@ Known MVP choices:
 Ask the hardware/flight teammate:
 
 ```text
-1. Exact USB camera model?
-2. Does it appear on Jetson as /dev/video0, /dev/video1, etc.?
-3. Supported resolution/FPS modes and pixel formats: MJPEG, YUYV, H264, raw?
+1. Exact USB camera model? **Closed: 4K ZOOM CAMERA.**
+2. Does it appear on Jetson as /dev/video0, /dev/video1, etc.? **Closed: `/dev/video0`.**
+3. Supported resolution/FPS modes and pixel formats? **Closed for first runtime:
+   use MJPG 1280x720 30 fps; avoid YUYV for realtime.**
 4. Can exposure, gain, white balance, and focus be locked manually?
 5. Lens FOV and whether the lens is fixed-focus or autofocus?
 6. Is the camera rigidly mounted to the drone body or on a gimbal?

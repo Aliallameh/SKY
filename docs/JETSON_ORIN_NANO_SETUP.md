@@ -53,6 +53,16 @@ sudo nvpmodel -m 0
 sudo jetson_clocks
 ```
 
+Verified development Jetson:
+
+```text
+Jetson Orin Nano Super
+L4T: R36 release, revision 4.7
+Power mode: MAXN_SUPER, mode ID 2
+User: office
+Home: /home/office
+```
+
 ## 2. Clone SkyScouter
 
 ```bash
@@ -133,6 +143,69 @@ Both are local deployment artifacts and are ignored by Git.
 Start with FP16. INT8 should be a later experiment only after we have a
 representative calibration set and compare semantic confusion against FP16.
 
+## Verified USB Camera
+
+Use the USB `4K ZOOM CAMERA` exposed at `/dev/video0`, OpenCV device index `0`.
+
+```text
+4K ZOOM CAMERA: 4K ZOOM CAMERA (usb-3610000.usb-2.1)
+  /dev/video0
+  /dev/video1
+  /dev/media1
+```
+
+The realtime mode for first SkyScouter testing is:
+
+```text
+backend: V4L2
+device: /dev/video0
+device_index: 0
+fourcc: MJPG
+width: 1280
+height: 720
+fps: 30
+```
+
+Use MJPG, not YUYV. MJPG supports 1280x720 at 30 fps and 1920x1080 at
+30 fps. YUYV only supports 1280x720 at 10 fps and 1920x1080 at 5 fps, so an
+accidental YUYV negotiation will make the runtime appear slow or broken.
+
+The direct OpenCV/V4L2 smoke test has already passed at 1280x720 MJPG 30 fps:
+
+```text
+opened: True
+fourcc: MJPG
+width: 1280
+height: 720
+fps: 30
+frames: 300
+seconds: 10.68
+approx_fps: 28.09
+```
+
+Run the repo-level camera source smoke test:
+
+```bash
+python3 scripts/dev/test_live_camera_source.py \
+  --device-index 0 \
+  --width 1280 \
+  --height 720 \
+  --fps 30 \
+  --fourcc MJPG \
+  --backend v4l2 \
+  --max-frames 300 \
+  --warmup-frames 10
+```
+
+Expected shape:
+
+```text
+settings include fourcc='MJPG', width=1280, height=720, fps=30
+total_frames: 300
+approx_fps: roughly 28-30
+last_shape: (720, 1280, 3)
+```
+
 ## 5. Benchmark `.pt` Versus `.engine`
 
 Replay benchmark:
@@ -181,7 +254,25 @@ Benchmark JSON is written under `data/outputs/benchmarks/`.
 
 ## 6. Run Live USB Camera Pipeline
 
-Use the TensorRT deployment config:
+Start with the PyTorch live-camera smoke profile before TensorRT:
+
+```bash
+python3 scripts/run_pipeline.py \
+  --config configs/jetson_live_camera_pytorch.yaml \
+  --output data/outputs/jetson_live_camera_pytorch_smoke
+```
+
+That profile reads 300 frames and writes:
+
+```text
+annotated.mp4
+target_states.jsonl
+guidance_hints.jsonl
+diagnostics.csv
+manifest.json
+```
+
+After TensorRT export passes, use the TensorRT deployment config:
 
 ```bash
 python3 scripts/run_pipeline.py \
@@ -193,12 +284,13 @@ The config uses:
 
 ```yaml
 source:
-  type: "opencv_camera"
-  device: 0
+  type: "live_camera"
+  device_index: 0
   width: 1280
   height: 720
   fps: 30
   fourcc: "MJPG"
+  backend: "v4l2"
 ```
 
 If the camera is not device `0`, inspect it:

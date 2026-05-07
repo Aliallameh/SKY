@@ -459,6 +459,52 @@ Review-only airborne-target lock mode showed geometry is often better than seman
 | Video_4 | 0.00% | 8.95% |
 | Video_5 | 0.55% | 29.69% |
 
+## Stage 2 Fresh Video Overlay Review
+
+These are still proxy/video-review metrics. They do not replace sparse GT, but
+they are useful for spotting product-level tracker failures.
+
+Stage 2 improved `Video_5` materially versus V2:
+
+| Metric | V2 | Stage 2 | Stage 2 + edge-start gate |
+|---|---:|---:|---:|
+| `drone` label frames | 126 | 2,320 | 2,312 |
+| `airplane` label frames | 1,878 | 221 | 221 |
+| `LOCKED` frames | 25 | 977 | 974 |
+| median confidence | 0.428 | 0.437 | 0.437 |
+
+However, Stage 2 also exposed a `Video_1` failure mode: fresh tracks could
+initialize on a clipped left-edge false positive and remain visually stuck
+near `cx ~= 25 px`.
+
+Implemented mitigation:
+
+```yaml
+tracker:
+  reject_edge_initial_detections: true
+  edge_reject_margin_px: 2.0
+```
+
+The gate rejects only new track starts on clipped/touching-edge detections. It
+does not reject an already-valid track that later continues toward the edge.
+
+`Video_1` result:
+
+| Metric | Stage 2 before | Stage 2 + edge-start gate |
+|---|---:|---:|
+| Active frames with `cx < 120 px` | 102 | 0 |
+| Left-edge sticky runs | 3 | 0 |
+| `LOCKED` frames | 1,117 | 1,126 |
+| `drone` label frames | 2,078 | 2,022 |
+| `airplane` label frames | 213 | 215 |
+
+Output folders:
+
+```text
+data/outputs/fresh_20260507_stage2_edgegate_Video_1
+data/outputs/fresh_20260507_stage2_edgegate_Video_5
+```
+
 ## Mode Separation
 
 Semantic-safe mode:

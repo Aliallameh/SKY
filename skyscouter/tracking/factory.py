@@ -26,6 +26,10 @@ def build_tracker(tracker_cfg: Dict[str, Any]) -> BaseTracker:
             ),
             max_prediction_only_frames=int(tracker_cfg.get("max_prediction_only_frames", 6)),
             min_prediction_confidence=float(tracker_cfg.get("min_prediction_confidence", 0.05)),
+            reject_edge_initial_detections=bool(
+                tracker_cfg.get("reject_edge_initial_detections", False)
+            ),
+            edge_reject_margin_px=float(tracker_cfg.get("edge_reject_margin_px", 2.0)),
         )
 
     if backend in ("bytetrack", "sort", "simple"):

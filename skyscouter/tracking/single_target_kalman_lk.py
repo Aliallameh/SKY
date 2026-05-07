@@ -68,8 +68,18 @@ def _center_distance(a: Detection, b: Detection) -> float:
     return float(((a.cx - b.cx) ** 2 + (a.cy - b.cy) ** 2) ** 0.5)
 
 
-def _is_boundary_clipped(d: Detection) -> bool:
-    return d.x <= 1.0 or d.y <= 1.0
+def _is_boundary_clipped(
+    d: Detection,
+    frame_wh: Optional[Tuple[int, int]] = None,
+    margin_px: float = 1.0,
+) -> bool:
+    margin = float(max(0.0, margin_px))
+    if d.x <= margin or d.y <= margin:
+        return True
+    if frame_wh is None:
+        return False
+    fw, fh = frame_wh
+    return d.x + d.w >= float(fw) - margin or d.y + d.h >= float(fh) - margin
 
 
 def _is_airborne_label(label: str) -> bool:
@@ -250,6 +260,8 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         max_primary_switches_per_second: float = 1.0,
         max_prediction_only_frames: int = 6,
         min_prediction_confidence: float = 0.05,
+        reject_edge_initial_detections: bool = False,
+        edge_reject_margin_px: float = 2.0,
     ):
         self._min_track_length = int(min_track_length)
         self._max_age = int(track_buffer_frames)
@@ -258,6 +270,8 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         self._max_switches_per_second = float(max_primary_switches_per_second)
         self._max_prediction_only_frames = int(max_prediction_only_frames)
         self._min_prediction_confidence = float(min_prediction_confidence)
+        self._reject_edge_initial_detections = bool(reject_edge_initial_detections)
+        self._edge_reject_margin_px = float(max(0.0, edge_reject_margin_px))
         self._appearance = AppearanceModel()
         self._flow = LKFlowPropagator(min_points=lk_min_points)
         self._next_id = 1
@@ -279,6 +293,8 @@ class SingleTargetKalmanLKTracker(BaseTracker):
             max_primary_switches_per_second=self._max_switches_per_second,
             max_prediction_only_frames=self._max_prediction_only_frames,
             min_prediction_confidence=self._min_prediction_confidence,
+            reject_edge_initial_detections=self._reject_edge_initial_detections,
+            edge_reject_margin_px=self._edge_reject_margin_px,
         )
 
     def update(
@@ -296,7 +312,7 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         self._last_time = capture_time_s
 
         if self._x is None:
-            best = self._choose_initial_detection(detections)
+            best = self._choose_initial_detection(detections, frame_wh)
             if best is None:
                 self._last_gray = gray
                 return []
@@ -410,10 +426,22 @@ class SingleTargetKalmanLKTracker(BaseTracker):
     def min_track_length(self) -> int:
         return self._min_track_length
 
-    def _choose_initial_detection(self, detections: List[Detection]) -> Optional[Detection]:
+    def _choose_initial_detection(
+        self,
+        detections: List[Detection],
+        frame_wh: Optional[Tuple[int, int]] = None,
+    ) -> Optional[Detection]:
         if not detections:
             return None
-        return max(detections, key=lambda d: (d.confidence, d.area))
+        candidates = detections
+        if self._reject_edge_initial_detections:
+            candidates = [
+                d for d in detections
+                if not _is_boundary_clipped(d, frame_wh, self._edge_reject_margin_px)
+            ]
+            if not candidates:
+                return None
+        return max(candidates, key=lambda d: (d.confidence, d.area))
 
     def _init_track(
         self,

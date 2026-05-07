@@ -40,16 +40,26 @@ This is the first gate for V3/V4 training. It records what the raw datasets actu
 - Images: 34804
 - Videos: 0
 - Annotation files: 10040
-- Annotation format: Detection VOC XML in train/val/test folders or zips; tracking TXT exists but is not Stage 1 first pass.
+- Annotation format: Detection VOC XML in train/val/test folders or zips; Tracking V0 frame folders with *_gt.txt rows in x y w h format.
 - Has boxes: `True`
-- Sequence/video IDs: `Detection image groups only; tracking split has sequences but is deferred.`
-- Recommended converter: `scripts/datasets/convert_dut_anti_uav.py`
+- Sequence/video IDs: `Detection image groups plus Tracking V0 sequence IDs (20 sequences).`
+- Recommended converter: `Detection: scripts/datasets/convert_dut_anti_uav.py; Tracking: scripts/datasets/convert_dut_anti_uav_tracking.py`
 
 **Class Remapping**
 
 - `UAV` -> `0 drone`
 - `uav` -> `0 drone`
 - `drone` -> `0 drone`
+- `Tracking V0 positive x y w h` -> `0 drone`
+- `Tracking V0 -100/non-positive width-height` -> `empty negative label`
+
+**Tracking V0 Discovery**
+
+- Sequences: 20
+- Frames / GT rows: 24804 / 24804
+- Positive rows: 22218
+- Empty/absent rows: 2586
+- Frame/GT mismatches: `[]`
 
 ### VisioDECT (`visiodect`)
 

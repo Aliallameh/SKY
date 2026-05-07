@@ -169,6 +169,18 @@ DUT-Anti-UAV:
   --link-mode copy
 ```
 
+DUT-Anti-UAV Tracking V0:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts\datasets\convert_dut_anti_uav_tracking.py `
+  --root "DATASETS\2_DUT-Anti-UAV\Tracking (IEEE-TITS)" `
+  --out-dir data\training\prototypes\dut_anti_uav_tracking_20 `
+  --limit 20 `
+  --max-positives-per-seq 1 `
+  --max-negatives-per-seq 1 `
+  --link-mode copy
+```
+
 VisioDECT:
 
 ```powershell
@@ -206,6 +218,7 @@ Validation commands:
 ```powershell
 .\.venv_train\Scripts\python.exe scripts\validate_yolo_dataset.py --data data\training\prototypes\anti_uav_rgbt_20\data.yaml
 .\.venv_train\Scripts\python.exe scripts\validate_yolo_dataset.py --data data\training\prototypes\dut_anti_uav_20\data.yaml
+.\.venv_train\Scripts\python.exe scripts\validate_yolo_dataset.py --data data\training\prototypes\dut_anti_uav_tracking_20\data.yaml
 .\.venv_train\Scripts\python.exe scripts\validate_yolo_dataset.py --data data\training\prototypes\visiodect_20\data.yaml
 .\.venv_train\Scripts\python.exe scripts\validate_yolo_dataset.py --data data\training\prototypes\aod4_20\data.yaml
 .\.venv_train\Scripts\python.exe scripts\validate_yolo_dataset.py --data data\training\validation_slices\visiodect_mavic_like\data.yaml
@@ -217,6 +230,7 @@ Results:
 |---|---|---|
 | Anti-UAV-RGBT 20 | PASS | 18 positives, 2 empty negative labels |
 | DUT-Anti-UAV 20 | PASS | duplicate image warning in prototype sample |
+| DUT-Anti-UAV Tracking V0 20 | PASS | 13 positives, 7 empty absent-target labels |
 | VisioDECT 20 | PASS | mostly small boxes |
 | AOD-4 20 | PASS | prototype contained drone/bird only; full audit still required |
 | Mavic-like held-out 20 | PASS | v2 baseline ran on this slice |
@@ -226,6 +240,7 @@ Results:
 ```powershell
 .\.venv_train\Scripts\python.exe scripts\preview_yolo_labels.py --data data\training\prototypes\anti_uav_rgbt_20\data.yaml --out-dir data\training\previews\anti_uav_rgbt_20
 .\.venv_train\Scripts\python.exe scripts\preview_yolo_labels.py --data data\training\prototypes\dut_anti_uav_20\data.yaml --out-dir data\training\previews\dut_anti_uav_20
+.\.venv_train\Scripts\python.exe scripts\preview_yolo_labels.py --data data\training\prototypes\dut_anti_uav_tracking_20\data.yaml --out-dir data\training\previews\dut_anti_uav_tracking_20
 .\.venv_train\Scripts\python.exe scripts\preview_yolo_labels.py --data data\training\prototypes\visiodect_20\data.yaml --out-dir data\training\previews\visiodect_20
 .\.venv_train\Scripts\python.exe scripts\preview_yolo_labels.py --data data\training\prototypes\aod4_20\data.yaml --out-dir data\training\previews\aod4_20
 .\.venv_train\Scripts\python.exe scripts\preview_yolo_labels.py --data data\training\validation_slices\visiodect_mavic_like\data.yaml --out-dir data\training\previews\visiodect_mavic_like_20

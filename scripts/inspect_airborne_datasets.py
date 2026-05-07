@@ -174,11 +174,24 @@ def inspect_dut_anti_uav(root: Path) -> Dict[str, Any]:
     result = base_dataset_result(root, "DUT-Anti-UAV")
     result.update(
         {
-            "annotation_format": "Detection VOC XML in train/val/test folders or zips; tracking TXT exists but is not Stage 1 first pass.",
-            "recommended_converter": "scripts/datasets/convert_dut_anti_uav.py",
-            "stage_policy": "Stage 1 drone-only using Detection VOC zips extracted to data/training/raw_cache/dut_antiuav_detection.",
-            "class_remapping": {"UAV": "0 drone", "uav": "0 drone", "drone": "0 drone"},
-            "safe_to_include": {"stage1": True, "stage2": "sample/cap as drone data only", "stage3": "only via balanced sample"},
+            "annotation_format": "Detection VOC XML in train/val/test folders or zips; Tracking V0 frame folders with *_gt.txt rows in x y w h format.",
+            "recommended_converter": "Detection: scripts/datasets/convert_dut_anti_uav.py; Tracking: scripts/datasets/convert_dut_anti_uav_tracking.py",
+            "stage_policy": (
+                "Stage 1 drone-only from Detection VOC plus optional Tracking V0. "
+                "Tracking V0 is especially useful for lock continuity and absent-target negatives."
+            ),
+            "class_remapping": {
+                "UAV": "0 drone",
+                "uav": "0 drone",
+                "drone": "0 drone",
+                "Tracking V0 positive x y w h": "0 drone",
+                "Tracking V0 -100/non-positive width-height": "empty negative label",
+            },
+            "safe_to_include": {
+                "stage1": True,
+                "stage2": "sample/cap as drone data only",
+                "stage3": "useful for temporal drone-positive/absent-target support, but not bird/airplane rejection",
+            },
         }
     )
     if not root.exists():
@@ -231,8 +244,75 @@ def inspect_dut_anti_uav(root: Path) -> Dict[str, Any]:
     result["detected_class_names"] = dict(voc_names)
     result["sample_annotation_examples"] = folder_examples + zip_examples
     result["has_bounding_boxes"] = bool(voc_names or zip_examples)
-    result["has_negative_images"] = "unknown"
-    result["sequence_ids_available"] = "Detection image groups only; tracking split has sequences but is deferred."
+    tracking = inspect_dut_tracking_split(root)
+    result["tracking_v0"] = tracking
+    if tracking.get("present"):
+        result["has_bounding_boxes"] = True
+        result["has_negative_images"] = tracking.get("negative_rows", 0) > 0
+        result["sequence_ids_available"] = f"Detection image groups plus Tracking V0 sequence IDs ({tracking.get('sequence_count', 0)} sequences)."
+    else:
+        result["has_negative_images"] = "unknown"
+        result["sequence_ids_available"] = "Detection image groups only; Tracking V0 not discovered."
+    return result
+
+
+def inspect_dut_tracking_split(root: Path) -> Dict[str, Any]:
+    tracking_root = root / "Tracking (IEEE-TITS)"
+    frames_dir = tracking_root / "Anti-UAV-Tracking-V0" / "Anti-UAV-Tracking-V0"
+    gt_dir = tracking_root / "Anti-UAV-Tracking-V0GT" / "Anti-UAV-Tracking-V0GT"
+    result: Dict[str, Any] = {
+        "present": frames_dir.exists() and gt_dir.exists(),
+        "frames_dir": str(frames_dir),
+        "gt_dir": str(gt_dir),
+        "format": "one *_gt.txt file per video sequence; each row aligns to frame N and stores x y w h; -100 rows mean target absent",
+    }
+    if not result["present"]:
+        return result
+    sequence_summaries = []
+    total_frames = 0
+    total_rows = 0
+    positive_rows = 0
+    negative_rows = 0
+    mismatches = []
+    for gt_path in sorted(gt_dir.glob("*_gt.txt")):
+        seq_name = gt_path.stem.replace("_gt", "")
+        seq_dir = frames_dir / seq_name
+        frame_count = len(list(seq_dir.glob("*.jpg"))) if seq_dir.exists() else 0
+        rows = [line.strip() for line in gt_path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+        seq_pos = 0
+        seq_neg = 0
+        for row in rows:
+            parts = row.split()
+            if len(parts) != 4:
+                seq_neg += 1
+                continue
+            try:
+                _x, _y, w, h = (float(part) for part in parts)
+            except ValueError:
+                seq_neg += 1
+                continue
+            if w > 0 and h > 0:
+                seq_pos += 1
+            else:
+                seq_neg += 1
+        if frame_count != len(rows):
+            mismatches.append({"sequence": seq_name, "frames": frame_count, "gt_rows": len(rows)})
+        total_frames += frame_count
+        total_rows += len(rows)
+        positive_rows += seq_pos
+        negative_rows += seq_neg
+        sequence_summaries.append({"sequence": seq_name, "frames": frame_count, "gt_rows": len(rows), "positive_rows": seq_pos, "negative_rows": seq_neg})
+    result.update(
+        {
+            "sequence_count": len(sequence_summaries),
+            "frame_count": total_frames,
+            "gt_rows": total_rows,
+            "positive_rows": positive_rows,
+            "negative_rows": negative_rows,
+            "frame_gt_mismatches": mismatches,
+            "sample_sequences": sequence_summaries[:5],
+        }
+    )
     return result
 
 
@@ -497,6 +577,14 @@ def render_markdown(report: Dict[str, Any]) -> str:
             lines.append(f"- Folder matches: `{mavic.get('folder_matches', {})}`")
             lines.append(f"- Label matches: `{mavic.get('label_matches', {})}`")
             lines.append(f"- Top-level Mavic-like folders: `{mavic.get('all_path_tokens', [])}`")
+        if data.get("tracking_v0", {}).get("present"):
+            tracking = data["tracking_v0"]
+            lines.extend(["", "**Tracking V0 Discovery**", ""])
+            lines.append(f"- Sequences: {tracking.get('sequence_count', 0)}")
+            lines.append(f"- Frames / GT rows: {tracking.get('frame_count', 0)} / {tracking.get('gt_rows', 0)}")
+            lines.append(f"- Positive rows: {tracking.get('positive_rows', 0)}")
+            lines.append(f"- Empty/absent rows: {tracking.get('negative_rows', 0)}")
+            lines.append(f"- Frame/GT mismatches: `{tracking.get('frame_gt_mismatches', [])}`")
         if data.get("direct_yolo_training_decision"):
             lines.extend(["", f"- Decision: {data['direct_yolo_training_decision']}"])
         if data.get("required_visual_audit"):

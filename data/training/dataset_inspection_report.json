@@ -110,18 +110,20 @@
       "image_count": 34804,
       "video_count": 0,
       "annotation_file_count": 10040,
-      "annotation_format": "Detection VOC XML in train/val/test folders or zips; tracking TXT exists but is not Stage 1 first pass.",
-      "recommended_converter": "scripts/datasets/convert_dut_anti_uav.py",
-      "stage_policy": "Stage 1 drone-only using Detection VOC zips extracted to data/training/raw_cache/dut_antiuav_detection.",
+      "annotation_format": "Detection VOC XML in train/val/test folders or zips; Tracking V0 frame folders with *_gt.txt rows in x y w h format.",
+      "recommended_converter": "Detection: scripts/datasets/convert_dut_anti_uav.py; Tracking: scripts/datasets/convert_dut_anti_uav_tracking.py",
+      "stage_policy": "Stage 1 drone-only from Detection VOC plus optional Tracking V0. Tracking V0 is especially useful for lock continuity and absent-target negatives.",
       "class_remapping": {
         "UAV": "0 drone",
         "uav": "0 drone",
-        "drone": "0 drone"
+        "drone": "0 drone",
+        "Tracking V0 positive x y w h": "0 drone",
+        "Tracking V0 -100/non-positive width-height": "empty negative label"
       },
       "safe_to_include": {
         "stage1": true,
         "stage2": "sample/cap as drone data only",
-        "stage3": "only via balanced sample"
+        "stage3": "useful for temporal drone-positive/absent-target support, but not bird/airplane rejection"
       },
       "zip_files": [],
       "detected_class_names": {
@@ -148,8 +150,57 @@
         }
       ],
       "has_bounding_boxes": true,
-      "has_negative_images": "unknown",
-      "sequence_ids_available": "Detection image groups only; tracking split has sequences but is deferred."
+      "tracking_v0": {
+        "present": true,
+        "frames_dir": "C:\\Users\\Ali\\Desktop\\SKY\\DATASETS\\2_DUT-Anti-UAV\\Tracking (IEEE-TITS)\\Anti-UAV-Tracking-V0\\Anti-UAV-Tracking-V0",
+        "gt_dir": "C:\\Users\\Ali\\Desktop\\SKY\\DATASETS\\2_DUT-Anti-UAV\\Tracking (IEEE-TITS)\\Anti-UAV-Tracking-V0GT\\Anti-UAV-Tracking-V0GT",
+        "format": "one *_gt.txt file per video sequence; each row aligns to frame N and stores x y w h; -100 rows mean target absent",
+        "sequence_count": 20,
+        "frame_count": 24804,
+        "gt_rows": 24804,
+        "positive_rows": 22218,
+        "negative_rows": 2586,
+        "frame_gt_mismatches": [],
+        "sample_sequences": [
+          {
+            "sequence": "video01",
+            "frames": 1050,
+            "gt_rows": 1050,
+            "positive_rows": 1050,
+            "negative_rows": 0
+          },
+          {
+            "sequence": "video02",
+            "frames": 83,
+            "gt_rows": 83,
+            "positive_rows": 83,
+            "negative_rows": 0
+          },
+          {
+            "sequence": "video03",
+            "frames": 100,
+            "gt_rows": 100,
+            "positive_rows": 100,
+            "negative_rows": 0
+          },
+          {
+            "sequence": "video04",
+            "frames": 341,
+            "gt_rows": 341,
+            "positive_rows": 341,
+            "negative_rows": 0
+          },
+          {
+            "sequence": "video05",
+            "frames": 450,
+            "gt_rows": 450,
+            "positive_rows": 450,
+            "negative_rows": 0
+          }
+        ]
+      },
+      "has_negative_images": true,
+      "sequence_ids_available": "Detection image groups plus Tracking V0 sequence IDs (20 sequences)."
     },
     "visiodect": {
       "display_name": "VisioDECT",
@@ -340,7 +391,6 @@
       "root": "C:\\Users\\Ali\\Desktop\\SKY\\DATASETS\\5_AOD 4 Dataset for Air Borne Object Detection",
       "status": "present",
       "file_extension_counts": {
-        ".zip": 1,
         ".json": 3,
         ".xml": 22516,
         ".tfrecord": 3,

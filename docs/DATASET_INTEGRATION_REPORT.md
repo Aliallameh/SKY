@@ -36,6 +36,7 @@ data/training/dataset_inspection_report.md
 |---|---|---|
 | Anti-UAV-RGBT | 636 videos, 639 JSON annotation files with `exist[]` and `gt_rect[]` | Stage 1 drone-only, visible/RGB only |
 | DUT-Anti-UAV Detection | 34,804 images, VOC XML with `UAV` boxes in extracted Detection folders | Stage 1 drone-only |
+| DUT-Anti-UAV Tracking V0 | 20 frame sequences, 24,804 GT rows aligned 1:1 with JPG frames, `x y w h` boxes plus absent rows | Drone-only temporal source for continuity and absent-target supervision |
 | VisioDECT | 20,924 images, VOC/YOLO/CSV annotations | Stage 1 drone-only; Mavic-like validation held out |
 | AOD-4 | 22,516 images, COCO/VOC/YOLOv8/TF annotations | Stage 2 capped rejection/confuser source after visual audit; not the authority for drone identity |
 | Drone-vs-Bird | 4,106 classification images, no boxes found | Do not use for YOLO detection; later hard-negative/crop-classifier work only |
@@ -76,6 +77,8 @@ To intentionally include AOD-4 drone boxes after audit, add
 | Anti-UAV-RGBT | `exist=1` visible target | `0 drone` |
 | Anti-UAV-RGBT | `exist=0` | empty negative label |
 | DUT-Anti-UAV | `UAV` | `0 drone` |
+| DUT-Anti-UAV Tracking V0 | positive `x y w h` row | `0 drone` |
+| DUT-Anti-UAV Tracking V0 | `-100 -100 -100 -100` or non-positive `w/h` | empty negative label |
 | VisioDECT | all drone model folders/classes | `0 drone` |
 | AOD-4 | `0 airplane` | `2 airplane` |
 | AOD-4 | `1 bird` | `1 bird` |
@@ -177,6 +180,64 @@ artifacts and remain ignored by git.
 | VisioDECT | `data/training/converted/visiodect` | 18,226 | 18,227 | PASS | excludes held-out `Mavic_Air_sunny` |
 | AOD-4 | `data/training/converted/aod4` | 22,516 | 31,598 | PASS | balanced multiclass conversion; Stage 2 should cap it and exclude AOD-4 drone boxes until audit |
 
+## DUT Tracking V0 Addendum
+
+The DUT tracking folder Ali pointed out is useful and should not be ignored:
+
+```text
+DATASETS/2_DUT-Anti-UAV/Tracking (IEEE-TITS)/Anti-UAV-Tracking-V0/Anti-UAV-Tracking-V0
+DATASETS/2_DUT-Anti-UAV/Tracking (IEEE-TITS)/Anti-UAV-Tracking-V0GT/Anti-UAV-Tracking-V0GT
+```
+
+Inspection result:
+
+| Metric | Value |
+|---|---:|
+| Sequences | 20 |
+| Frames | 24,804 |
+| GT rows | 24,804 |
+| Positive drone rows | 22,218 |
+| Empty/absent rows | 2,586 |
+| Frame/GT mismatches | 0 |
+
+Implemented converter:
+
+```text
+scripts/datasets/convert_dut_anti_uav_tracking.py
+```
+
+Prototype command:
+
+```powershell
+.\.venv_train\Scripts\python.exe scripts\datasets\convert_dut_anti_uav_tracking.py `
+  --root "DATASETS\2_DUT-Anti-UAV\Tracking (IEEE-TITS)" `
+  --out-dir data\training\prototypes\dut_anti_uav_tracking_20 `
+  --limit 20 `
+  --max-positives-per-seq 1 `
+  --max-negatives-per-seq 1 `
+  --link-mode copy
+```
+
+Prototype status:
+
+| Metric | Value |
+|---|---:|
+| Images | 20 |
+| Drone boxes | 13 |
+| Empty labels | 7 |
+| Validation errors | 0 |
+| Validation warnings | 0 |
+
+Preview folder:
+
+```text
+data/training/previews/dut_anti_uav_tracking_20
+```
+
+Use this source as drone-positive/absent-target support for Stage 1/Stage 3 or
+a Stage 2b continuity experiment. It does not teach bird/airplane/helicopter
+rejection by itself, so it must not replace confuser data.
+
 Full preview folders:
 
 ```text
@@ -258,6 +319,7 @@ scripts/inspect_airborne_datasets.py
 scripts/datasets/common_yolo.py
 scripts/datasets/convert_anti_uav_rgbt.py
 scripts/datasets/convert_dut_anti_uav.py
+scripts/datasets/convert_dut_anti_uav_tracking.py
 scripts/datasets/convert_visiodect.py
 scripts/datasets/convert_aod4.py
 scripts/datasets/convert_drone_vs_bird.py

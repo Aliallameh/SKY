@@ -1,15 +1,15 @@
 # V3 Training Results
 
-Last updated: 2026-05-06
+Last updated: 2026-05-07
 
 ## Status
 
-Stage 1 full training has completed, but it remains diagnostic/pretraining only
-and is not promoted. Stage 2 has not started.
+Stage 1 and Stage 2 full training have completed. Neither is promoted.
 
-The gates still block uncontrolled Stage 2 training until the capped Stage 2
-dataset is rebuilt, validated, previewed, and AOD-4 is audited as a confuser
-source.
+Stage 2 is useful evidence: it preserved held-out Mavic-like drone recognition
+and repaired most Stage 1 non-drone false positives, but it still fails the
+local hard-case semantic gate. Stage 3 should therefore use the conservative v2
+base unless a later Stage 2b run fixes the local drone-to-airplane issue.
 
 A minimal V3 quick domain-adaptation fine-tune has been completed from v2 best weights for the corrected local hard-case packet. This is not a replacement for the staged V3/V4 pipeline, and it is not promoted.
 
@@ -380,6 +380,74 @@ Previews:
 Rendered 360 previews. Spot checks show clean Mavic-like drone boxes, usable
 DUT tiny-drone boxes, and AOD-4 airplane/helicopter confusers. AOD-4 bird
 quality is mixed, which supports the capped-confuser policy.
+
+## Stage 2 Full Training
+
+Command:
+
+```powershell
+$env:YOLO_CONFIG_DIR=(Resolve-Path data\training\.ultralytics).Path
+.\.venv_train\Scripts\python.exe scripts\train_airborne_yolo.py `
+  --config configs\training\airborne_yolo11_stage2_multiclass.yaml `
+  --batch 16 `
+  --workers 4
+```
+
+Run:
+
+```text
+data/training/runs/yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix
+```
+
+Weights:
+
+```text
+data/training/runs/yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix/weights/best.pt
+data/training/runs/yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix/weights/last.pt
+```
+
+Training result:
+
+| Metric | Value |
+|---|---:|
+| Epochs | 80 / 80 |
+| Best mAP50-95 epoch | 75 |
+| Best mAP50 | 0.943 |
+| Best mAP50-95 | 0.62605 |
+| Final precision | 0.93896 |
+| Final recall | 0.91687 |
+| Final mAP50 | 0.94054 |
+| Final mAP50-95 | 0.62538 |
+| Batch | 16 |
+| Workers | 4 |
+| Image size | 1024 |
+| Mixup | 0.0 |
+
+Final validation summary from Ultralytics:
+
+| Class | Images | Instances | Precision | Recall | mAP50 | mAP50-95 |
+|---|---:|---:|---:|---:|---:|---:|
+| all | 5,973 | 6,514 | 0.938 | 0.919 | 0.943 | 0.626 |
+| drone | 4,756 | 4,765 | 0.907 | 0.863 | 0.897 | 0.528 |
+| bird | 239 | 504 | 0.969 | 0.952 | 0.974 | 0.696 |
+| airplane | 440 | 594 | 0.945 | 0.926 | 0.958 | 0.687 |
+| helicopter | 462 | 651 | 0.931 | 0.933 | 0.943 | 0.593 |
+
+Promotion/base decision:
+
+```text
+Do not promote Stage 2.
+Do not use Stage 2 as the default Stage 3 base.
+```
+
+Reason: Stage 2 solved the held-out Mavic-like slice and repaired most
+bird/airplane-to-drone false positives, but it still worsened the local
+hard-case drone-to-airplane count versus v2. Stage 3 remains configured to
+start from:
+
+```text
+data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt
+```
 
 Merged Stage 1 dataset is also built and validated:
 

@@ -1,6 +1,6 @@
 # V3 Evaluation Summary
 
-Last updated: 2026-05-06
+Last updated: 2026-05-07
 
 ## Current V2 Baseline
 
@@ -321,6 +321,121 @@ airborne rejection before any Stage 3 local fine-tune, but AOD-4 is only a
 capped confuser source. Do not let AOD-4 define drone identity unless its
 drone-vs-airplane audit passes.
 ```
+
+## Stage 2 Capped Multiclass Evaluation
+
+Model:
+
+```text
+data/training/runs/yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix/weights/best.pt
+```
+
+Stage 2 used Stage 1 best as the base, capped AOD-4 as a confuser source, and
+excluded AOD-4 images containing `drone`.
+
+### Local Hard Case
+
+Command:
+
+```powershell
+$env:YOLO_CONFIG_DIR=(Resolve-Path data\training\.ultralytics).Path
+.\.venv_train\Scripts\python.exe scripts\evaluate_hard_case.py `
+  --csv annotations\camera_20260423_113401_turn_review_strict\drone_sparse_gt_corrected.csv `
+  --config configs\trained_yolo11s_v2_guidance_full.yaml `
+  --weights data\training\runs\yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix\weights\best.pt `
+  --output data\outputs\stage2_eval_20260507\hard_case_stage2 `
+  --case-name stage2_capped_hard_case_conf025 `
+  --confidence-threshold 0.25 `
+  --no-copy-images
+```
+
+| Metric | V2 baseline | Stage 1 | Stage 2 |
+|---|---:|---:|---:|
+| Positive drone frames | 54 | 54 | 54 |
+| Negative frames | 7 | 7 | 7 |
+| Detector geometric hit rate | 42.59% | 98.15% | 87.04% |
+| Detector semantic drone hit rate | 1.85% | 98.15% | 22.22% |
+| Matched as drone | 1 | 53 | 12 |
+| Matched as airplane | 22 | 0 | 35 |
+| Missed | 31 | 1 | 7 |
+| Tracker geometric hit rate | 53.70% | 100.00% | 94.44% |
+| Tracker semantic drone hit rate | 0.00% | 100.00% | 24.07% |
+| Detector negative false positives | 0 | 0 | 0 |
+| Tracker negative false positives | 0 | 1 | 1 |
+
+Stage 2 improves geometric detection versus v2, but it does not pass the local
+semantic gate. It still labels most matched local drone boxes as `airplane`.
+
+### Full Mavic-Like Held-Out Slice
+
+Command:
+
+```powershell
+$env:YOLO_CONFIG_DIR=(Resolve-Path data\training\.ultralytics).Path
+.\.venv_train\Scripts\python.exe scripts\evaluate_yolo_semantic_confusion.py `
+  --model data\training\runs\yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix\weights\best.pt `
+  --data data\training\validation_slices\visiodect_mavic_like_full\data.yaml `
+  --out data\outputs\stage2_eval_20260507\mavic_like_stage2.json `
+  --split val --conf 0.25 --imgsz 1024 --device 0
+```
+
+| Metric | V2 baseline | Quick V3 | Stage 1 | Stage 2 |
+|---|---:|---:|---:|---:|
+| GT drone boxes | 1,191 | 1,191 | 1,191 | 1,191 |
+| Matched as drone | 882 | 728 | 1,191 | 1,191 |
+| Matched as airplane | 228 | 285 | 0 | 0 |
+| Missed | 81 | 178 | 0 | 0 |
+| Drone-to-airplane confusion | 19.14% | 23.93% | 0.00% | 0.00% |
+| Small semantic drone recall | 78.22% | 76.24% | 100.00% | 100.00% |
+| Medium semantic drone recall | 69.74% | 45.47% | 100.00% | 100.00% |
+
+Stage 2 preserves the Mavic-like win.
+
+### AOD-4 Multiclass False-Positive Check
+
+Command:
+
+```powershell
+$env:YOLO_CONFIG_DIR=(Resolve-Path data\training\.ultralytics).Path
+.\.venv_train\Scripts\python.exe scripts\evaluate_yolo_semantic_confusion.py `
+  --model data\training\runs\yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix\weights\best.pt `
+  --data data\training\converted\aod4\data.yaml `
+  --out data\outputs\stage2_eval_20260507\aod4_val_stage2.json `
+  --split val --conf 0.25 --imgsz 1024 --device 0
+```
+
+| Metric | V2 baseline | Stage 1 | Stage 2 |
+|---|---:|---:|---:|
+| AOD-4 val images | 4,514 | 4,514 | 4,514 |
+| GT drone boxes | 1,602 | 1,602 | 1,602 |
+| Matched GT drones as drone | 1,563 | 1,503 | 1,080 |
+| Matched GT drones as airplane | 0 | 0 | 293 |
+| Matched GT drones as bird | 2 | 0 | 15 |
+| Matched GT drones as helicopter | 1 | 0 | 67 |
+| Missed GT drones | 36 | 99 | 147 |
+| Bird-to-drone false matches | 1 | 280 | 0 |
+| Airplane-to-drone false matches | 0 | 754 | 1 |
+| Unmatched drone predictions | 113 | 879 | 45 |
+
+Stage 2 repairs the worst Stage 1 false-positive collapse, but because AOD-4
+`drone` images were excluded from training, AOD-4 drone recall and semantics
+regress hard. This confirms AOD-4 should not be the authority for drone identity
+and that Stage 2 is not promotion-ready.
+
+### Stage 2 Decision
+
+```text
+Do not promote Stage 2.
+Do not use Stage 2 as the default Stage 3 base.
+Use v2 as the Stage 3 base unless a Stage 2b run fixes local hard-case drone->airplane confusion.
+```
+
+Why:
+
+- Mavic-like held-out gate: pass.
+- Non-drone false-positive rejection: mostly pass.
+- Local hard-case semantic gate: fail.
+- AOD-4 drone semantics: fail, expected from excluding AOD-4 drone.
 
 ## Fresh Video Proxy Baseline
 

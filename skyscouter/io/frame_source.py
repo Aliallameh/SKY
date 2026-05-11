@@ -245,4 +245,23 @@ def build_frame_source(source_cfg: dict, video_path: Optional[str] = None) -> Ba
             strict=strict,
         )
 
+    if src_type in {"rtsp_stream", "ip_camera", "siyi_a8_mini"}:
+        from .rtsp_stream_source import RtspStreamSource
+
+        return RtspStreamSource(
+            url=str(source_cfg.get("url", "")),
+            source_id=str(source_cfg.get("source_id", "siyi_a8_mini")),
+            expected_width=source_cfg.get("expected_width", source_cfg.get("width")),
+            expected_height=source_cfg.get("expected_height", source_cfg.get("height")),
+            fps=source_cfg.get("fps"),
+            transport=str(source_cfg.get("transport", "tcp")),
+            open_timeout_s=float(source_cfg.get("open_timeout_s", 10.0)),
+            read_timeout_s=float(source_cfg.get("read_timeout_s", 5.0)),
+            reconnect_delay_s=float(source_cfg.get("reconnect_delay_s", 1.0)),
+            first_frame_timeout_s=float(source_cfg.get("first_frame_timeout_s", 15.0)),
+            max_frames=source_cfg.get("max_frames"),
+            frame_stride=stride,
+            strict=strict,
+        )
+
     raise ValueError(f"Unknown source.type: {src_type}")

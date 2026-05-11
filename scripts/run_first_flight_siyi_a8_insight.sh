@@ -3,22 +3,25 @@ set -Eeuo pipefail
 
 ROOT="/home/office/SKY"
 PYTHON="$ROOT/.venv_jetson/bin/python"
-CONFIG="$ROOT/configs/deploy_jetson_yolo11s_stage2_multiclass_capped_engine_1080p.yaml"
+CONFIG="$ROOT/configs/deploy_jetson_siyi_a8_mini_stage2_engine_1080p.yaml"
 ENGINE="$ROOT/data/models/yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix/best.engine"
 OUTPUT_ROOT="$ROOT/data/outputs"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-RUN_DIR="$OUTPUT_ROOT/flight_001_stage2_tensorrt_1080p_$STAMP"
-OPERATOR_LOG="$RUN_DIR/first_flight_operator.log"
-OPERATOR_VIEW_PORT="${OPERATOR_VIEW_PORT:-8090}"
-OPERATOR_VIEW_MODE="${OPERATOR_VIEW_MODE:-mjpeg}"
-OPERATOR_VIEW_FULLSCREEN="${OPERATOR_VIEW_FULLSCREEN:-0}"
+RUN_DIR="$OUTPUT_ROOT/flight_001_siyi_a8_stage2_tensorrt_1080p_$STAMP"
+OPERATOR_LOG="$RUN_DIR/first_flight_siyi_a8_operator.log"
+
+SIYI_A8_CAMERA_IP="${SIYI_A8_CAMERA_IP:-192.168.144.25}"
+SIYI_A8_RTSP_URL="${SIYI_A8_RTSP_URL:-rtsp://${SIYI_A8_CAMERA_IP}:8554/main.264}"
+
+OPERATOR_VIEW_MODE="${OPERATOR_VIEW_MODE:-window}"
+OPERATOR_VIEW_FULLSCREEN="${OPERATOR_VIEW_FULLSCREEN:-1}"
 OPERATOR_VIEW_DISPLAY_WIDTH="${OPERATOR_VIEW_DISPLAY_WIDTH:-1920}"
 OPERATOR_VIEW_DISPLAY_HEIGHT="${OPERATOR_VIEW_DISPLAY_HEIGHT:-1080}"
 OPERATOR_VIEW_WINDOW_BACKEND="${OPERATOR_VIEW_WINDOW_BACKEND:-gstreamer}"
 OPERATOR_VIEW_DISPLAY_FPS="${OPERATOR_VIEW_DISPLAY_FPS:-10}"
+OPERATOR_VIEW_PORT="${OPERATOR_VIEW_PORT:-8090}"
 
 mkdir -p "$RUN_DIR"
-
 exec > >(tee -a "$OPERATOR_LOG") 2>&1
 
 fail() {
@@ -35,20 +38,15 @@ case "$OPERATOR_VIEW_MODE" in
     *) fail "Invalid OPERATOR_VIEW_MODE=$OPERATOR_VIEW_MODE. Use mjpeg, window, or both." ;;
 esac
 
-echo "SkyScouter First Flight TensorRT Runtime"
+echo "SkyScouter SIYI A8 Mini + Insight First Flight Runtime"
 echo "Model: Stage 2 multiclass capped review candidate"
-echo "Capture mode: 1920x1080 MJPG 30 fps"
+echo "Camera: SIYI A8 Mini RTSP"
+echo "RTSP URL: $SIYI_A8_RTSP_URL"
 echo "Started UTC: $(date -u --iso-8601=seconds)"
 echo "Run directory: $RUN_DIR"
 echo "Operator view mode: $OPERATOR_VIEW_MODE"
-if [[ "$OPERATOR_VIEW_MODE" == "mjpeg" || "$OPERATOR_VIEW_MODE" == "both" ]]; then
-    echo "Live operator view: http://<jetson-ip>:$OPERATOR_VIEW_PORT/"
-    echo "Local operator view: http://127.0.0.1:$OPERATOR_VIEW_PORT/"
-fi
-if [[ "$OPERATOR_VIEW_MODE" == "window" || "$OPERATOR_VIEW_MODE" == "both" ]]; then
-    echo "HDMI/window output: ${OPERATOR_VIEW_DISPLAY_WIDTH}x${OPERATOR_VIEW_DISPLAY_HEIGHT}, fullscreen=$OPERATOR_VIEW_FULLSCREEN"
-    echo "HDMI/window backend: $OPERATOR_VIEW_WINDOW_BACKEND"
-fi
+echo "HDMI/window backend: $OPERATOR_VIEW_WINDOW_BACKEND"
+echo "HDMI/window output: ${OPERATOR_VIEW_DISPLAY_WIDTH}x${OPERATOR_VIEW_DISPLAY_HEIGHT}, fullscreen=$OPERATOR_VIEW_FULLSCREEN"
 echo
 
 cd "$ROOT"
@@ -58,8 +56,21 @@ echo "Checking required files..."
 [[ -f "$CONFIG" ]] || fail "Runtime config missing: $CONFIG"
 [[ -f "$ENGINE" ]] || fail "TensorRT engine missing: $ENGINE"
 
-echo "Engine:"
-ls -lh "$ENGINE"
+echo "Checking A8 Mini network reachability..."
+if ping -c 1 -W 2 "$SIYI_A8_CAMERA_IP" >/dev/null 2>&1; then
+    echo "A8 Mini ping: PASS ($SIYI_A8_CAMERA_IP)"
+else
+    echo "A8 Mini ping: FAIL ($SIYI_A8_CAMERA_IP)"
+    echo
+    echo "The Jetson Ethernet interface must be configured on the A8 subnet."
+    echo "Known A8 Mini default camera IP: $SIYI_A8_CAMERA_IP"
+    echo "Recommended Jetson Ethernet static IP: 192.168.144.10/24"
+    echo
+    echo "Example NetworkManager command:"
+    echo "  sudo nmcli con mod 'Wired connection 1' ipv4.method manual ipv4.addresses 192.168.144.10/24 ipv4.gateway '' ipv4.dns ''"
+    echo "  sudo nmcli con up 'Wired connection 1'"
+    fail "A8 Mini is not reachable. Fix Ethernet IP/wiring/power before running RTSP inference."
+fi
 echo
 
 echo "Setting Jetson flight power mode..."
@@ -73,32 +84,24 @@ fi
 echo "Not enabling jetson_clocks for flight. Stability and power margin are more important than peak benchmark speed."
 echo
 
-echo "Running preflight with camera probe..."
+echo "Running preflight with RTSP probe..."
 "$PYTHON" scripts/dev/jetson_preflight_check.py \
-    --camera-device /dev/video0 \
-    --camera-index 0 \
     --config "$CONFIG" \
     --engine "$ENGINE" \
-    --probe-camera \
+    --probe-rtsp \
+    --rtsp-url "$SIYI_A8_RTSP_URL" \
     --output-dir "$RUN_DIR/preflight" || fail "Preflight failed"
 
 echo
 echo "Preflight passed."
-echo
-echo "RECORDING STARTING NOW"
-echo "Keep this terminal open during flight."
-if [[ "$OPERATOR_VIEW_MODE" == "mjpeg" || "$OPERATOR_VIEW_MODE" == "both" ]]; then
-    echo "Open the live operator view in a browser before takeoff if needed."
-fi
-if [[ "$OPERATOR_VIEW_MODE" == "window" || "$OPERATOR_VIEW_MODE" == "both" ]]; then
-    echo "Verify the HDMI/window output on the Insight receiver before takeoff."
-fi
+echo "Verify the Insight receiver sees the Jetson display before takeoff."
 echo "After landing, press Ctrl+C once. The pipeline will close video writers and finalize manifest.json."
 echo
 
 PIPELINE_CMD=(
     "$PYTHON" scripts/run_pipeline.py
     --config "$CONFIG"
+    --source-url "$SIYI_A8_RTSP_URL"
     --output "$RUN_DIR"
     --operator-view
     --operator-view-mode "$OPERATOR_VIEW_MODE"
@@ -106,18 +109,14 @@ PIPELINE_CMD=(
     --operator-view-port "$OPERATOR_VIEW_PORT"
     --operator-view-max-width 1280
     --operator-view-jpeg-quality 70
+    --operator-view-display-width "$OPERATOR_VIEW_DISPLAY_WIDTH"
+    --operator-view-display-height "$OPERATOR_VIEW_DISPLAY_HEIGHT"
+    --operator-view-window-backend "$OPERATOR_VIEW_WINDOW_BACKEND"
+    --operator-view-display-fps "$OPERATOR_VIEW_DISPLAY_FPS"
 )
 
-if [[ "$OPERATOR_VIEW_MODE" == "window" || "$OPERATOR_VIEW_MODE" == "both" ]]; then
-    PIPELINE_CMD+=(
-        --operator-view-display-width "$OPERATOR_VIEW_DISPLAY_WIDTH"
-        --operator-view-display-height "$OPERATOR_VIEW_DISPLAY_HEIGHT"
-        --operator-view-window-backend "$OPERATOR_VIEW_WINDOW_BACKEND"
-        --operator-view-display-fps "$OPERATOR_VIEW_DISPLAY_FPS"
-    )
-    if [[ "$OPERATOR_VIEW_FULLSCREEN" == "1" || "$OPERATOR_VIEW_FULLSCREEN" == "true" ]]; then
-        PIPELINE_CMD+=(--operator-view-fullscreen)
-    fi
+if [[ "$OPERATOR_VIEW_FULLSCREEN" == "1" || "$OPERATOR_VIEW_FULLSCREEN" == "true" ]]; then
+    PIPELINE_CMD+=(--operator-view-fullscreen)
 fi
 
 set +e
@@ -150,7 +149,7 @@ else
 fi
 
 echo
-echo "First flight run directory:"
+echo "SIYI A8 Mini run directory:"
 echo "$RUN_DIR"
 echo
 echo "Press Enter to close this window."

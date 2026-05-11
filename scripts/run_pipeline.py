@@ -41,6 +41,8 @@ def parse_args() -> argparse.Namespace:
                    help="Path to input video file or image folder. Not needed for source.type=opencv_camera.")
     p.add_argument("--config", required=True, help="Path to YAML config")
     p.add_argument("--output", required=True, help="Output directory for this run")
+    p.add_argument("--source-url", default=None,
+                   help="Override source.url for RTSP/IP camera configs")
     p.add_argument("--run-id", default=None, help="Optional run identifier")
     p.add_argument("--gt", default=None, help="Optional sparse GT CSV override for evaluation")
     p.add_argument("--guidance-enabled", action="store_true",
@@ -79,6 +81,22 @@ def parse_args() -> argparse.Namespace:
                    help="Downscale live view frames to this max width before streaming")
     p.add_argument("--operator-view-jpeg-quality", type=int, default=None,
                    help="MJPEG JPEG quality from 1 to 100")
+    p.add_argument("--operator-view-fullscreen", action="store_true",
+                   help="Open the operator window fullscreen for HDMI/video transmitters")
+    p.add_argument("--operator-view-windowed", action="store_true",
+                   help="Force the operator window to non-fullscreen")
+    p.add_argument("--operator-view-display-width", type=int, default=None,
+                   help="Letterbox the operator window frame to this display width")
+    p.add_argument("--operator-view-display-height", type=int, default=None,
+                   help="Letterbox the operator window frame to this display height")
+    p.add_argument("--operator-view-window-x", type=int, default=None,
+                   help="Move the operator window to this X position before fullscreen")
+    p.add_argument("--operator-view-window-y", type=int, default=None,
+                   help="Move the operator window to this Y position before fullscreen")
+    p.add_argument("--operator-view-window-backend", choices=["opencv", "gstreamer"], default=None,
+                   help="Window display backend. Use gstreamer on Jetson headless OpenCV builds.")
+    p.add_argument("--operator-view-display-fps", type=int, default=None,
+                   help="Display framerate hint for the GStreamer window backend")
     return p.parse_args()
 
 
@@ -89,6 +107,9 @@ def main() -> int:
     logger = RunLogger(output_dir=args.output, run_id=args.run_id)
     try:
         cfg = load_config(args.config)
+        if args.source_url is not None:
+            cfg.setdefault("source", {})
+            cfg["source"]["url"] = args.source_url
         if args.gt:
             cfg.setdefault("evaluation", {})
             cfg["evaluation"]["enabled"] = True
@@ -154,6 +175,32 @@ def main() -> int:
         if args.operator_view_jpeg_quality is not None:
             cfg.setdefault("operator_view", {})
             cfg["operator_view"]["jpeg_quality"] = args.operator_view_jpeg_quality
+        if args.operator_view_fullscreen and args.operator_view_windowed:
+            raise ValueError("Use only one of --operator-view-fullscreen or --operator-view-windowed")
+        if args.operator_view_fullscreen:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["fullscreen"] = True
+        if args.operator_view_windowed:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["fullscreen"] = False
+        if args.operator_view_display_width is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["display_width"] = args.operator_view_display_width
+        if args.operator_view_display_height is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["display_height"] = args.operator_view_display_height
+        if args.operator_view_window_x is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["window_x"] = args.operator_view_window_x
+        if args.operator_view_window_y is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["window_y"] = args.operator_view_window_y
+        if args.operator_view_window_backend is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["window_backend"] = args.operator_view_window_backend
+        if args.operator_view_display_fps is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["display_fps"] = args.operator_view_display_fps
         if cfg.get("mock_bridge", {}).get("enabled", False) and not cfg.get("guidance", {}).get("enabled", False):
             raise ValueError("mock_bridge.enabled=true requires guidance.enabled=true")
         logger.set_config(cfg)

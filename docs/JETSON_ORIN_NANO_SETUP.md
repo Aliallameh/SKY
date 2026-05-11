@@ -299,6 +299,23 @@ python3 scripts/run_jetson_live_pipeline.py --backend tensorrt \
 Open `http://<jetson-ip>:8090/` from the operator laptop. The first-flight
 TensorRT launcher enables this MJPEG view by default.
 
+For a dedicated HDMI video downlink such as the Insight 5G 1080p system, use a
+fullscreen operator window and feed the Jetson display output into the video
+transmitter:
+
+```bash
+python3 scripts/run_jetson_live_pipeline.py --backend tensorrt \
+  --operator-view \
+  --operator-view-mode window \
+  --operator-view-fullscreen \
+  --operator-view-window-backend gstreamer \
+  --operator-view-display-width 1920 \
+  --operator-view-display-height 1080
+```
+
+Use `--operator-view-mode both` if you want the fullscreen HDMI output and the
+MJPEG browser endpoint at the same time.
+
 The full runtime writes:
 
 ```text

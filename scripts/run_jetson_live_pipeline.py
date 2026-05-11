@@ -37,6 +37,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--operator-view-port", type=int, default=None)
     parser.add_argument("--operator-view-max-width", type=int, default=None)
     parser.add_argument("--operator-view-jpeg-quality", type=int, default=None)
+    parser.add_argument("--operator-view-fullscreen", action="store_true")
+    parser.add_argument("--operator-view-windowed", action="store_true")
+    parser.add_argument("--operator-view-display-width", type=int, default=None)
+    parser.add_argument("--operator-view-display-height", type=int, default=None)
+    parser.add_argument("--operator-view-window-x", type=int, default=None)
+    parser.add_argument("--operator-view-window-y", type=int, default=None)
+    parser.add_argument("--operator-view-window-backend", choices=["opencv", "gstreamer"], default=None)
+    parser.add_argument("--operator-view-display-fps", type=int, default=None)
     return parser.parse_args()
 
 
@@ -74,6 +82,22 @@ def main() -> int:
         cmd.extend(["--operator-view-max-width", str(args.operator_view_max_width)])
     if args.operator_view_jpeg_quality is not None:
         cmd.extend(["--operator-view-jpeg-quality", str(args.operator_view_jpeg_quality)])
+    if args.operator_view_fullscreen:
+        cmd.append("--operator-view-fullscreen")
+    if args.operator_view_windowed:
+        cmd.append("--operator-view-windowed")
+    if args.operator_view_display_width is not None:
+        cmd.extend(["--operator-view-display-width", str(args.operator_view_display_width)])
+    if args.operator_view_display_height is not None:
+        cmd.extend(["--operator-view-display-height", str(args.operator_view_display_height)])
+    if args.operator_view_window_x is not None:
+        cmd.extend(["--operator-view-window-x", str(args.operator_view_window_x)])
+    if args.operator_view_window_y is not None:
+        cmd.extend(["--operator-view-window-y", str(args.operator_view_window_y)])
+    if args.operator_view_window_backend is not None:
+        cmd.extend(["--operator-view-window-backend", args.operator_view_window_backend])
+    if args.operator_view_display_fps is not None:
+        cmd.extend(["--operator-view-display-fps", str(args.operator_view_display_fps)])
     print("Launching full live pipeline:")
     print(" ".join(cmd))
     print("Press Ctrl+C to stop and finalize the manifest cleanly.")

@@ -27,10 +27,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run SkyScouter Jetson preflight diagnostics.")
     parser.add_argument("--camera-device", default="/dev/video0")
     parser.add_argument("--camera-index", type=int, default=0)
+    parser.add_argument("--rtsp-url", default=None)
     parser.add_argument("--config", default="configs/jetson_live_camera_pytorch.yaml")
     parser.add_argument("--weights", default="data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt")
     parser.add_argument("--engine", default="data/models/yolo11s_airborne_aod4_antiuav300_v2/best.engine")
     parser.add_argument("--probe-camera", action="store_true", help="Try opening the camera through OpenCV.")
+    parser.add_argument("--probe-rtsp", action="store_true", help="Try opening an RTSP/IP camera stream.")
     parser.add_argument(
         "--output-dir",
         default=None,
@@ -134,6 +136,36 @@ def camera_probe(camera_index: int) -> Dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+def rtsp_probe(url: str, timeout_s: float = 15.0) -> Dict[str, Any]:
+    try:
+        import cv2  # type: ignore
+
+        deadline = datetime.now(timezone.utc).timestamp() + timeout_s
+        cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+        try:
+            opened = bool(cap.isOpened())
+            ok = False
+            frame = None
+            while opened and datetime.now(timezone.utc).timestamp() < deadline:
+                ok, frame = cap.read()
+                if ok and frame is not None:
+                    break
+            return {
+                "ok": opened and ok and frame is not None,
+                "opened": opened,
+                "read_ok": bool(ok),
+                "shape": list(frame.shape) if frame is not None else None,
+                "width": cap.get(cv2.CAP_PROP_FRAME_WIDTH) if opened else None,
+                "height": cap.get(cv2.CAP_PROP_FRAME_HEIGHT) if opened else None,
+                "fps": cap.get(cv2.CAP_PROP_FPS) if opened else None,
+                "url": url,
+            }
+        finally:
+            cap.release()
+    except Exception as exc:
+        return {"ok": False, "url": url, "error": str(exc)}
+
+
 def default_output_dir() -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return Path("data") / "outputs" / f"jetson_preflight_{stamp}"
@@ -200,6 +232,20 @@ def main() -> int:
     }
     if args.probe_camera:
         camera["opencv_probe"] = camera_probe(args.camera_index)
+    if args.probe_rtsp:
+        rtsp_url = args.rtsp_url
+        if rtsp_url is None:
+            try:
+                import yaml  # type: ignore
+
+                cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
+                rtsp_url = cfg.get("source", {}).get("url")
+            except Exception:
+                rtsp_url = None
+        camera["rtsp_probe"] = rtsp_probe(str(rtsp_url)) if rtsp_url else {
+            "ok": False,
+            "error": "No RTSP URL provided and source.url missing from config.",
+        }
 
     report = {
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),

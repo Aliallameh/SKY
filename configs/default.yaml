@@ -232,3 +232,10 @@ operator_view:
   max_width: 1280
   jpeg_quality: 75
   window_name: "SkyScouter Operator View"
+  fullscreen: false
+  display_width: null
+  display_height: null
+  window_x: null
+  window_y: null
+  window_backend: "opencv"  # "opencv" or "gstreamer"
+  display_fps: 10

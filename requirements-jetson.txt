@@ -18,6 +18,7 @@ pandas>=2.0,<3
 scipy>=1.10,<2
 tqdm>=4.66,<5
 psutil>=5.9,<8
+cffi>=1.15,<2
 
 # OpenCV is often installed by JetPack/apt as python3-opencv. If your venv
 # cannot import cv2, install opencv-python-headless manually or recreate the
@@ -27,5 +28,8 @@ opencv-python-headless>=4.7,<5
 # Install PyTorch and torchvision from NVIDIA's Jetson channel first.
 # Ultralytics should see that Jetson PyTorch is already installed.
 ultralytics>=8.4,<8.5
+
+# Development and regression checks on the Jetson venv.
+pytest>=7.4,<9
 
 -e .

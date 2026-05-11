@@ -286,6 +286,19 @@ The full runtime runs until the camera stops or the operator presses `Ctrl+C`.
 `Ctrl+C` is handled as a clean interruption: writers are closed and
 `manifest.json` is finalized with status `interrupted`.
 
+To watch the annotated ML output while the run is active:
+
+```bash
+python3 scripts/run_jetson_live_pipeline.py --backend tensorrt \
+  --operator-view \
+  --operator-view-mode mjpeg \
+  --operator-view-host 0.0.0.0 \
+  --operator-view-port 8090
+```
+
+Open `http://<jetson-ip>:8090/` from the operator laptop. The first-flight
+TensorRT launcher enables this MJPEG view by default.
+
 The full runtime writes:
 
 ```text

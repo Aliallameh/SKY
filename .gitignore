@@ -69,5 +69,6 @@ Ultralytics/
 
 # Environment
 .venv/
+.venv_jetson/
 .venv_train/
 venv/

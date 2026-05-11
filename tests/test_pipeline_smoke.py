@@ -64,6 +64,15 @@ class SequenceDetector(BaseDetector):
         return 320
 
 
+class CaptureOperatorView:
+    def __init__(self):
+        self.frames = []
+        self.stop_requested = False
+
+    def publish(self, image_bgr):
+        self.frames.append(image_bgr.copy())
+
+
 def _guidance_cfg(*, calibration_reviewed=False):
     return {
         "enabled": True,
@@ -203,6 +212,60 @@ def test_pipeline_runs_with_stub_detector(smoke_dirs):
         assert ts["schema_version"] == "skyscout.onboard_target.v1"
         assert ts["message_type"] in ("TARGET_STATE", "NO_TARGET", "HEARTBEAT", "SYSTEM_FAULT")
         assert ts["guidance_valid"] is False  # stub detector -> never guidance-valid
+
+
+def test_pipeline_publishes_annotated_frames_to_operator_view(tmp_path):
+    video_path = tmp_path / "operator_view.mp4"
+    out_dir = tmp_path / "run_operator_view"
+    _make_synthetic_video(str(video_path), frames=4, w=160, h=120)
+    cfg = {
+        "schema_version": "skyscout.config.v1",
+        "source": {"type": "video_file", "frame_stride": 1, "strict": True},
+        "camera": {"calibration_id": "TEST", "is_calibrated": False},
+        "detector": {"backend": "stub", "model_version": "stub_test"},
+        "tracker": {"backend": "simple"},
+        "lock": {
+            "acquired_to_tracking_frames": 1,
+            "tracking_to_locked_frames": 1,
+            "min_class_confidence": 0.3,
+            "min_lock_quality": 0.0,
+            "lost_to_aborted_seconds": 1.0,
+            "strike_ready": {
+                "min_locked_duration_seconds": 10.0,
+                "min_bbox_frame_fraction": 0.01,
+                "bbox_center_window": 1.0,
+                "max_cue_age_seconds": None,
+            },
+        },
+        "output": {"save_annotated_video": False},
+        "operator_view": {"enabled": True},
+    }
+
+    src = VideoFileSource(str(video_path), frame_stride=1, strict=True)
+    logger = RunLogger(str(out_dir))
+    logger.set_config(cfg)
+    sink = CaptureOperatorView()
+    annotator = VideoAnnotator(None, 160, 120, fps=10.0, write_video=False)
+
+    try:
+        pipe = Pipeline(
+            config=cfg,
+            frame_source=src,
+            detector=StubDetector(),
+            tracker=SimpleIoUTracker(),
+            run_logger=logger,
+            annotator=annotator,
+            operator_view=sink,
+        )
+        pipe.run()
+    finally:
+        annotator.close()
+        src.close()
+        logger.finalize()
+
+    assert len(sink.frames) == 4
+    assert sink.frames[0].shape == (120, 160, 3)
+    assert not (out_dir / "annotated.mp4").exists()
 
 
 def test_pipeline_revokes_guidance_when_track_is_not_updated(tmp_path):

@@ -24,7 +24,7 @@ torch>=2.7,<2.12
 torchvision>=0.22,<0.27
 
 # Development and regression checks
-pytest>=7.4
+pytest>=7.4,<9
 
 # Install this repo as an editable package when using this requirements file.
 -e .

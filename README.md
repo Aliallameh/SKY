@@ -237,6 +237,18 @@ After exporting the TensorRT engine, run:
 python3 scripts/run_jetson_live_pipeline.py --backend tensorrt
 ```
 
+For a live annotated operator feed, add:
+
+```bash
+python3 scripts/run_jetson_live_pipeline.py --backend tensorrt \
+  --operator-view \
+  --operator-view-mode mjpeg \
+  --operator-view-host 0.0.0.0 \
+  --operator-view-port 8090
+```
+
+Then open `http://<jetson-ip>:8090/` from the operator laptop.
+
 The live runtime writes:
 
 | File | Meaning |

@@ -34,6 +34,7 @@ from .output.target_state_writer import TargetStateJsonlWriter
 from .output.guidance_writer import GuidanceHintJsonlWriter
 from .output.bridge_writer import BridgeProposalJsonlWriter
 from .output.annotator import VideoAnnotator
+from .output.operator_view import LiveOperatorView
 from .output.raw_video_recorder import RawVideoRecorder
 from .output.run_logger import RunLogger
 from .output.evaluation import DiagnosticsWriter, EvaluationCollector
@@ -51,6 +52,7 @@ class Pipeline:
         guidance_hint_writer: Optional[GuidanceHintJsonlWriter] = None,
         bridge_proposal_writer: Optional[BridgeProposalJsonlWriter] = None,
         annotator: Optional[VideoAnnotator] = None,
+        operator_view: Optional[LiveOperatorView] = None,
         raw_video_recorder: Optional[RawVideoRecorder] = None,
         diagnostics_writer: Optional[DiagnosticsWriter] = None,
         evaluation_collector: Optional[EvaluationCollector] = None,
@@ -64,6 +66,7 @@ class Pipeline:
         self._guidance_writer = guidance_hint_writer
         self._bridge_writer = bridge_proposal_writer
         self._annotator = annotator
+        self._operator_view = operator_view
         self._raw_video_recorder = raw_video_recorder
         self._diagnostics = diagnostics_writer
         self._evaluation = evaluation_collector
@@ -235,6 +238,7 @@ class Pipeline:
                 self._bridge_writer.write(self._mock_bridge.consume(guidance_hint))
 
             # 6. Annotate video
+            operator_stop_requested = False
             if self._annotator is not None:
                 annotated = self._annotator.annotate(
                     image_bgr=frame.image_bgr,
@@ -249,8 +253,14 @@ class Pipeline:
                     guidance_hint=guidance_hint,
                 )
                 self._annotator.write(annotated)
+                if self._operator_view is not None:
+                    self._operator_view.publish(annotated)
+                    operator_stop_requested = self._operator_view.stop_requested
 
             self._logger.increment_frame()
+            if operator_stop_requested:
+                self._logger.info("Operator view requested stop")
+                break
             if frame.frame_index > 0 and frame.frame_index % 300 == 0:
                 label = "NO_TARGET" if primary is None else str(primary.detection.class_label)
                 self._logger.info(

@@ -34,26 +34,31 @@ STATE_COLORS = {
 
 
 class VideoAnnotator:
-    """Writes an MP4 with bounding boxes and state overlay."""
+    """Renders frame overlays and optionally writes an MP4 review artifact."""
 
     def __init__(
         self,
-        output_path: str,
+        output_path: Optional[str],
         width: int,
         height: int,
         fps: float = 30.0,
         guidance_overlay_cfg: Optional[Dict[str, Any]] = None,
+        write_video: bool = True,
     ):
-        self._path = Path(output_path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path = Path(output_path) if output_path else None
+        self._writer = None
+        if write_video:
+            if self._path is None:
+                raise ValueError("output_path is required when write_video=True")
+            self._path.parent.mkdir(parents=True, exist_ok=True)
 
-        # mp4v works on most ffmpeg/OpenCV builds. avc1 may be unavailable.
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self._writer = cv2.VideoWriter(
-            str(self._path), fourcc, max(1.0, fps), (width, height)
-        )
-        if not self._writer.isOpened():
-            raise IOError(f"Could not open video writer for {self._path}")
+            # mp4v works on most ffmpeg/OpenCV builds. avc1 may be unavailable.
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            self._writer = cv2.VideoWriter(
+                str(self._path), fourcc, max(1.0, fps), (width, height)
+            )
+            if not self._writer.isOpened():
+                raise IOError(f"Could not open video writer for {self._path}")
 
         self._width = width
         self._height = height
@@ -121,6 +126,8 @@ class VideoAnnotator:
         return img
 
     def write(self, image_bgr: np.ndarray) -> None:
+        if self._writer is None:
+            return
         # Ensure correct size
         if image_bgr.shape[1] != self._width or image_bgr.shape[0] != self._height:
             image_bgr = cv2.resize(image_bgr, (self._width, self._height))

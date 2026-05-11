@@ -28,6 +28,7 @@ from skyscouter.output.target_state_writer import TargetStateJsonlWriter
 from skyscouter.output.guidance_writer import GuidanceHintJsonlWriter
 from skyscouter.output.bridge_writer import BridgeProposalJsonlWriter
 from skyscouter.output.annotator import VideoAnnotator
+from skyscouter.output.operator_view import LiveOperatorView
 from skyscouter.output.raw_video_recorder import RawVideoRecorder
 from skyscouter.output.evaluation import DiagnosticsWriter, EvaluationCollector
 from skyscouter.pipeline import Pipeline
@@ -64,6 +65,20 @@ def parse_args() -> argparse.Namespace:
                    help="Override config to enable mock GuidanceHint bridge JSONL output")
     p.add_argument("--no-mock-bridge", action="store_true",
                    help="Override config to disable mock GuidanceHint bridge output")
+    p.add_argument("--operator-view", action="store_true",
+                   help="Enable live operator view for annotated ML frames")
+    p.add_argument("--no-operator-view", action="store_true",
+                   help="Disable live operator view even if config enables it")
+    p.add_argument("--operator-view-mode", choices=["mjpeg", "window", "both"], default=None,
+                   help="Live operator view mode")
+    p.add_argument("--operator-view-host", default=None,
+                   help="MJPEG bind host, for example 0.0.0.0")
+    p.add_argument("--operator-view-port", type=int, default=None,
+                   help="MJPEG bind port")
+    p.add_argument("--operator-view-max-width", type=int, default=None,
+                   help="Downscale live view frames to this max width before streaming")
+    p.add_argument("--operator-view-jpeg-quality", type=int, default=None,
+                   help="MJPEG JPEG quality from 1 to 100")
     return p.parse_args()
 
 
@@ -116,6 +131,29 @@ def main() -> int:
         if args.no_mock_bridge:
             cfg.setdefault("mock_bridge", {})
             cfg["mock_bridge"]["enabled"] = False
+        if args.operator_view and args.no_operator_view:
+            raise ValueError("Use only one of --operator-view or --no-operator-view")
+        if args.operator_view:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["enabled"] = True
+        if args.no_operator_view:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["enabled"] = False
+        if args.operator_view_mode is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["mode"] = args.operator_view_mode
+        if args.operator_view_host is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["host"] = args.operator_view_host
+        if args.operator_view_port is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["port"] = args.operator_view_port
+        if args.operator_view_max_width is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["max_width"] = args.operator_view_max_width
+        if args.operator_view_jpeg_quality is not None:
+            cfg.setdefault("operator_view", {})
+            cfg["operator_view"]["jpeg_quality"] = args.operator_view_jpeg_quality
         if cfg.get("mock_bridge", {}).get("enabled", False) and not cfg.get("guidance", {}).get("enabled", False):
             raise ValueError("mock_bridge.enabled=true requires guidance.enabled=true")
         logger.set_config(cfg)
@@ -149,15 +187,21 @@ def main() -> int:
 
         out_cfg = cfg.get("output", {})
         annot_fps = out_cfg.get("annotated_video_fps") or fps
+        operator_view_cfg = cfg.get("operator_view", {})
+        operator_view_enabled = bool(operator_view_cfg.get("enabled", False))
+        operator_view = None
+        save_annotated_video = bool(out_cfg.get("save_annotated_video", True))
+        needs_annotated_frames = save_annotated_video or operator_view_enabled
         annotator = (
             VideoAnnotator(
-                str(annotated_path),
+                str(annotated_path) if save_annotated_video else None,
                 w,
                 h,
                 fps=annot_fps,
                 guidance_overlay_cfg=cfg.get("guidance", {}).get("overlay", {"enabled": False}),
+                write_video=save_annotated_video,
             )
-            if out_cfg.get("save_annotated_video", True) else None
+            if needs_annotated_frames else None
         )
         raw_recorder = (
             RawVideoRecorder(str(raw_video_path), w, h, fps=annot_fps)
@@ -165,7 +209,7 @@ def main() -> int:
         )
         if raw_recorder is not None:
             logger.set_artifact("raw_camera_video", str(raw_video_path))
-        if annotator is not None:
+        if save_annotated_video and annotator is not None:
             logger.set_artifact("annotated_video", str(annotated_path))
         writer_ctx = TargetStateJsonlWriter(str(jsonl_path)) \
             if out_cfg.get("save_target_states_jsonl", True) else None
@@ -190,6 +234,14 @@ def main() -> int:
             logger.set_artifact("eval_report_json", str(eval_path))
 
         try:
+            if operator_view_enabled:
+                operator_view = LiveOperatorView.from_config(operator_view_cfg)
+                if operator_view.remote_url_hint:
+                    logger.info(f"Operator view: {operator_view.remote_url_hint}")
+                    logger.set_artifact("operator_view_url", operator_view.remote_url_hint)
+                elif operator_view.url:
+                    logger.info(f"Operator view: {operator_view.url}")
+                    logger.set_artifact("operator_view_url", operator_view.url)
             if writer_ctx is not None:
                 writer_ctx.__enter__()
             if guidance_writer_ctx is not None:
@@ -209,6 +261,7 @@ def main() -> int:
                 guidance_hint_writer=guidance_writer_ctx,
                 bridge_proposal_writer=bridge_writer_ctx,
                 annotator=annotator,
+                operator_view=operator_view,
                 raw_video_recorder=raw_recorder,
                 diagnostics_writer=diagnostics,
                 evaluation_collector=evaluator,
@@ -228,6 +281,8 @@ def main() -> int:
                 bridge_writer_ctx.__exit__(None, None, None)
             if annotator is not None:
                 annotator.close()
+            if operator_view is not None:
+                operator_view.close()
             if raw_recorder is not None:
                 raw_recorder.close()
             if diagnostics is not None:

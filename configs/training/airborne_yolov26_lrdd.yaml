@@ -9,7 +9,7 @@ dataset:
 
 model:
   family: "ultralytics_yolo"
-  base_weights: "yolov26.pt"  # Using your existing yolov26 model as base
+  base_weights: "yolov26n.pt"  # Nano variant
   image_size: 384  # Matches dataset resize
   pretrained: true
 

@@ -1,0 +1,44 @@
+schema_version: "skyscout.airborne_training.v1"
+profile_name: "yolov26_lrdd_v2"
+
+dataset:
+  # Using pre-existing LRDDv2 dataset
+  manifest: null
+  prepared_dir: "DATASETS/6_LRDDv2"
+  data_yaml: "DATASETS/6_LRDDv2/data.yaml"
+
+model:
+  family: "ultralytics_yolo"
+  base_weights: "yolov26.pt"  # Using your existing yolov26 model as base
+  image_size: 384  # Matches dataset resize
+  pretrained: true
+
+training:
+  epochs: 50  # Adjust as needed
+  batch: 8
+  patience: 20
+  workers: 8
+  device: "auto"
+  project: "data/training/runs"
+  run_name: "yolov26_lrdd_v2"
+  optimizer: "auto"
+  close_mosaic: 10
+  seed: 42
+  cache: false
+  amp: true
+
+augmentation:
+  hsv_h: 0.015
+  hsv_s: 0.45
+  hsv_v: 0.35
+  degrees: 0.0
+  translate: 0.06
+  scale: 0.45
+  shear: 0.0
+  perspective: 0.0
+  fliplr: 0.5
+  mosaic: 0.7
+  mixup: 0.05
+  copy_paste: 0.0
+
+# Acceptance gate omitted for external dataset

@@ -1,11 +1,11 @@
 schema_version: "skyscout.airborne_training.v1"
-profile_name: "yolov26_lrdd_v2"
+profile_name: "yolov26_lrdd_no_bird"
 
 dataset:
-  # Using pre-existing LRDDv2 dataset
-  manifest: null
-  prepared_dir: "DATASETS/6_LRDDv2"
-  data_yaml: "DATASETS/6_LRDDv2/data.yaml"
+  # Combined drone-only dataset: LRDDv2 + Anti-UAV300 RGB (no birds)
+  manifest: "configs/training/airborne_dataset_manifest.yaml"
+  prepared_dir: "data/training/yolov26_lrdd_no_bird"
+  data_yaml: "data/training/yolov26_lrdd_no_bird/data.yaml"
 
 model:
   family: "ultralytics_yolo"

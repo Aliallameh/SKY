@@ -132,6 +132,31 @@ guidance:
     draw_text: true
     draw_bbox_geometry: true
 
+gimbal_follow:
+  # Image-space pixel-error servo that sends SIYI gimbal rotation commands
+  # (CMD_ID 0x07) over UDP to keep the tracked target near the optical center.
+  # Default is OFF and dry-run; flip dry_run only after bench sign verification.
+  enabled: false
+  dry_run: true
+  backend: "siyi_udp"
+  host: "192.168.144.25"
+  port: 37260
+  timeout_s: 0.20
+  allowed_lock_states: ["LOCKED", "STRIKE_READY"]
+  min_confidence: 0.35
+  command_hz: 20.0
+  deadband_px_x: 60.0
+  deadband_px_y: 45.0
+  kp_yaw: 18.0
+  kp_pitch: 14.0
+  max_yaw_cmd: 15
+  max_pitch_cmd: 12
+  invert_yaw: true
+  invert_pitch: false
+  stop_after_lost_s: 0.15
+  log_jsonl: true
+  log_filename: "gimbal_follow_commands.jsonl"
+
 mock_bridge:
   enabled: false
   output_jsonl: true

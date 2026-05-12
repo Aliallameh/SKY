@@ -42,7 +42,9 @@ class GimbalFollowController:
             self._cfg.get("allowed_lock_states", ["TRACKING", "LOCKED", "STRIKE_READY"])
         )
         self._min_confidence = float(self._cfg.get("min_confidence", 0.35))
-        self._command_period_s = 1.0 / max(1.0, float(self._cfg.get("command_hz", 10.0)))
+        # command_hz <= 0 disables rate limiting (useful for tests / replay).
+        command_hz = float(self._cfg.get("command_hz", 10.0))
+        self._command_period_s = (1.0 / command_hz) if command_hz > 0.0 else 0.0
         self._deadband_px_x = float(self._cfg.get("deadband_px_x", 40.0))
         self._deadband_px_y = float(self._cfg.get("deadband_px_y", 30.0))
         self._kp_yaw = float(self._cfg.get("kp_yaw", 35.0))
@@ -90,7 +92,7 @@ class GimbalFollowController:
             return None
 
         now = time.monotonic()
-        if now - self._last_send_s < self._command_period_s:
+        if self._command_period_s > 0.0 and now - self._last_send_s < self._command_period_s:
             return None
         self._last_send_s = now
 

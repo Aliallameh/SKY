@@ -23,6 +23,7 @@ from .perception.base_detector import BaseDetector, Detection
 from .tracking.base_tracker import BaseTracker, Track
 from .bridge.factory import build_mock_guidance_bridge
 from .bridge.mock_guidance_bridge import MockGuidanceBridge
+from .gimbal.follow_controller import GimbalFollowController
 from .guidance.bearing import GuidanceInput
 from .guidance.factory import build_guidance_computer
 from .lock.state_machine import LockStateMachine, StrikeReadyConfig
@@ -56,6 +57,7 @@ class Pipeline:
         raw_video_recorder: Optional[RawVideoRecorder] = None,
         diagnostics_writer: Optional[DiagnosticsWriter] = None,
         evaluation_collector: Optional[EvaluationCollector] = None,
+        gimbal_follow_controller: Optional[GimbalFollowController] = None,
     ):
         self._cfg = config
         self._source = frame_source
@@ -70,6 +72,7 @@ class Pipeline:
         self._raw_video_recorder = raw_video_recorder
         self._diagnostics = diagnostics_writer
         self._evaluation = evaluation_collector
+        self._gimbal_follow = gimbal_follow_controller
 
         # Lock state machines per track_id
         self._lock_smachines: Dict[int, LockStateMachine] = {}
@@ -236,6 +239,8 @@ class Pipeline:
                 self._guidance_writer.write(guidance_hint)
             if self._mock_bridge is not None and self._bridge_writer is not None:
                 self._bridge_writer.write(self._mock_bridge.consume(guidance_hint))
+            if self._gimbal_follow is not None:
+                self._gimbal_follow.consume(guidance_hint)
 
             # 6. Annotate video
             operator_stop_requested = False

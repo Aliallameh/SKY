@@ -21,6 +21,17 @@ OPERATOR_VIEW_WINDOW_BACKEND="${OPERATOR_VIEW_WINDOW_BACKEND:-gstreamer}"
 OPERATOR_VIEW_DISPLAY_FPS="${OPERATOR_VIEW_DISPLAY_FPS:-10}"
 OPERATOR_VIEW_PORT="${OPERATOR_VIEW_PORT:-8090}"
 
+# Gimbal follow (SIYI A8 Mini UDP control on 192.168.144.25:37260, CMD_ID 0x07).
+# Default OFF. With GIMBAL_FOLLOW_ENABLED=1 and GIMBAL_FOLLOW_DRY_RUN=1 the
+# controller only logs proposed yaw/pitch commands. Set GIMBAL_FOLLOW_DRY_RUN=0
+# only after bench sign verification with scripts/dev/siyi_gimbal_bench.py.
+GIMBAL_FOLLOW_ENABLED="${GIMBAL_FOLLOW_ENABLED:-0}"
+GIMBAL_FOLLOW_DRY_RUN="${GIMBAL_FOLLOW_DRY_RUN:-1}"
+GIMBAL_FOLLOW_HOST="${GIMBAL_FOLLOW_HOST:-$SIYI_A8_CAMERA_IP}"
+GIMBAL_FOLLOW_PORT="${GIMBAL_FOLLOW_PORT:-37260}"
+GIMBAL_INVERT_YAW="${GIMBAL_INVERT_YAW:-0}"
+GIMBAL_INVERT_PITCH="${GIMBAL_INVERT_PITCH:-0}"
+
 mkdir -p "$RUN_DIR"
 exec > >(tee -a "$OPERATOR_LOG") 2>&1
 
@@ -47,6 +58,15 @@ echo "Run directory: $RUN_DIR"
 echo "Operator view mode: $OPERATOR_VIEW_MODE"
 echo "HDMI/window backend: $OPERATOR_VIEW_WINDOW_BACKEND"
 echo "HDMI/window output: ${OPERATOR_VIEW_DISPLAY_WIDTH}x${OPERATOR_VIEW_DISPLAY_HEIGHT}, fullscreen=$OPERATOR_VIEW_FULLSCREEN"
+if [[ "$GIMBAL_FOLLOW_ENABLED" == "1" || "$GIMBAL_FOLLOW_ENABLED" == "true" ]]; then
+    if [[ "$GIMBAL_FOLLOW_DRY_RUN" == "1" || "$GIMBAL_FOLLOW_DRY_RUN" == "true" ]]; then
+        echo "Gimbal follow: ENABLED (DRY_RUN — no UDP sent) target=$GIMBAL_FOLLOW_HOST:$GIMBAL_FOLLOW_PORT"
+    else
+        echo "Gimbal follow: ENABLED (LIVE UDP) target=$GIMBAL_FOLLOW_HOST:$GIMBAL_FOLLOW_PORT  invert_yaw=$GIMBAL_INVERT_YAW invert_pitch=$GIMBAL_INVERT_PITCH"
+    fi
+else
+    echo "Gimbal follow: DISABLED"
+fi
 echo
 
 cd "$ROOT"
@@ -117,6 +137,23 @@ PIPELINE_CMD=(
 
 if [[ "$OPERATOR_VIEW_FULLSCREEN" == "1" || "$OPERATOR_VIEW_FULLSCREEN" == "true" ]]; then
     PIPELINE_CMD+=(--operator-view-fullscreen)
+fi
+
+if [[ "$GIMBAL_FOLLOW_ENABLED" == "1" || "$GIMBAL_FOLLOW_ENABLED" == "true" ]]; then
+    PIPELINE_CMD+=(--gimbal-follow-enabled)
+    PIPELINE_CMD+=(--gimbal-host "$GIMBAL_FOLLOW_HOST")
+    PIPELINE_CMD+=(--gimbal-port "$GIMBAL_FOLLOW_PORT")
+    if [[ "$GIMBAL_FOLLOW_DRY_RUN" == "1" || "$GIMBAL_FOLLOW_DRY_RUN" == "true" ]]; then
+        PIPELINE_CMD+=(--gimbal-follow-dry-run)
+    else
+        PIPELINE_CMD+=(--gimbal-follow-live)
+    fi
+    if [[ "$GIMBAL_INVERT_YAW" == "1" || "$GIMBAL_INVERT_YAW" == "true" ]]; then
+        PIPELINE_CMD+=(--gimbal-invert-yaw)
+    fi
+    if [[ "$GIMBAL_INVERT_PITCH" == "1" || "$GIMBAL_INVERT_PITCH" == "true" ]]; then
+        PIPELINE_CMD+=(--gimbal-invert-pitch)
+    fi
 fi
 
 set +e

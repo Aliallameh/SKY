@@ -31,6 +31,7 @@ from skyscouter.output.annotator import VideoAnnotator
 from skyscouter.output.operator_view import LiveOperatorView
 from skyscouter.output.raw_video_recorder import RawVideoRecorder
 from skyscouter.output.evaluation import DiagnosticsWriter, EvaluationCollector
+from skyscouter.gimbal.factory import build_gimbal_follow_controller
 from skyscouter.pipeline import Pipeline
 from skyscouter.utils.config_loader import load_config
 
@@ -97,6 +98,20 @@ def parse_args() -> argparse.Namespace:
                    help="Window display backend. Use gstreamer on Jetson headless OpenCV builds.")
     p.add_argument("--operator-view-display-fps", type=int, default=None,
                    help="Display framerate hint for the GStreamer window backend")
+    p.add_argument("--gimbal-follow-enabled", action="store_true",
+                   help="Override config to enable SIYI gimbal follow control")
+    p.add_argument("--no-gimbal-follow", action="store_true",
+                   help="Override config to disable SIYI gimbal follow control")
+    p.add_argument("--gimbal-follow-dry-run", action="store_true",
+                   help="Force gimbal follow to dry-run (log commands but do not send UDP)")
+    p.add_argument("--gimbal-follow-live", action="store_true",
+                   help="Disable dry-run: actually send UDP rotation commands to the SIYI gimbal")
+    p.add_argument("--gimbal-host", default=None, help="Override gimbal_follow.host")
+    p.add_argument("--gimbal-port", type=int, default=None, help="Override gimbal_follow.port")
+    p.add_argument("--gimbal-invert-yaw", action="store_true",
+                   help="Override gimbal_follow.invert_yaw=true")
+    p.add_argument("--gimbal-invert-pitch", action="store_true",
+                   help="Override gimbal_follow.invert_pitch=true")
     return p.parse_args()
 
 
@@ -203,6 +218,36 @@ def main() -> int:
             cfg["operator_view"]["display_fps"] = args.operator_view_display_fps
         if cfg.get("mock_bridge", {}).get("enabled", False) and not cfg.get("guidance", {}).get("enabled", False):
             raise ValueError("mock_bridge.enabled=true requires guidance.enabled=true")
+        if args.gimbal_follow_enabled and args.no_gimbal_follow:
+            raise ValueError("Use only one of --gimbal-follow-enabled or --no-gimbal-follow")
+        if args.gimbal_follow_dry_run and args.gimbal_follow_live:
+            raise ValueError("Use only one of --gimbal-follow-dry-run or --gimbal-follow-live")
+        if args.gimbal_follow_enabled:
+            cfg.setdefault("gimbal_follow", {})
+            cfg["gimbal_follow"]["enabled"] = True
+        if args.no_gimbal_follow:
+            cfg.setdefault("gimbal_follow", {})
+            cfg["gimbal_follow"]["enabled"] = False
+        if args.gimbal_follow_dry_run:
+            cfg.setdefault("gimbal_follow", {})
+            cfg["gimbal_follow"]["dry_run"] = True
+        if args.gimbal_follow_live:
+            cfg.setdefault("gimbal_follow", {})
+            cfg["gimbal_follow"]["dry_run"] = False
+        if args.gimbal_host is not None:
+            cfg.setdefault("gimbal_follow", {})
+            cfg["gimbal_follow"]["host"] = args.gimbal_host
+        if args.gimbal_port is not None:
+            cfg.setdefault("gimbal_follow", {})
+            cfg["gimbal_follow"]["port"] = args.gimbal_port
+        if args.gimbal_invert_yaw:
+            cfg.setdefault("gimbal_follow", {})
+            cfg["gimbal_follow"]["invert_yaw"] = True
+        if args.gimbal_invert_pitch:
+            cfg.setdefault("gimbal_follow", {})
+            cfg["gimbal_follow"]["invert_pitch"] = True
+        if cfg.get("gimbal_follow", {}).get("enabled", False) and not cfg.get("guidance", {}).get("enabled", False):
+            raise ValueError("gimbal_follow.enabled=true requires guidance.enabled=true")
         logger.set_config(cfg)
         logger.set_video_path(args.video)
         logger.info(f"Loaded config: {args.config}")
@@ -280,6 +325,15 @@ def main() -> int:
         if evaluator is not None:
             logger.set_artifact("eval_report_json", str(eval_path))
 
+        gimbal_follow = build_gimbal_follow_controller(
+            cfg, output_dir=out_dir, run_id=logger.run_id,
+        )
+        if gimbal_follow is not None:
+            mode = "DRY_RUN" if gimbal_follow.dry_run else "LIVE_UDP"
+            logger.info(f"Gimbal follow controller: enabled mode={mode}")
+            if gimbal_follow.log_path is not None:
+                logger.set_artifact("gimbal_follow_commands_jsonl", str(gimbal_follow.log_path))
+
         try:
             if operator_view_enabled:
                 operator_view = LiveOperatorView.from_config(operator_view_cfg)
@@ -312,6 +366,7 @@ def main() -> int:
                 raw_video_recorder=raw_recorder,
                 diagnostics_writer=diagnostics,
                 evaluation_collector=evaluator,
+                gimbal_follow_controller=gimbal_follow,
             )
             status = "completed"
             try:
@@ -336,6 +391,8 @@ def main() -> int:
                 diagnostics.close()
             if evaluator is not None:
                 evaluator.write_report(str(eval_path))
+            if gimbal_follow is not None:
+                gimbal_follow.close()
             source.close()
 
         logger.finalize(status=status)

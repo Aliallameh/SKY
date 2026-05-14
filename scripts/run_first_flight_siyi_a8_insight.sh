@@ -8,7 +8,11 @@ case "$CONFIG" in
     /*) ;;                              # absolute path -> use as-is
     *)  CONFIG="$ROOT/$CONFIG" ;;        # relative path -> resolve under repo root
 esac
-ENGINE="$ROOT/data/models/yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix/best.engine"
+ENGINE="${SKY_ENGINE:-$ROOT/data/models/yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix/best.engine}"
+case "$ENGINE" in
+    /*) ;;                               # absolute path -> use as-is
+    *)  ENGINE="$ROOT/$ENGINE" ;;        # relative path -> resolve under repo root
+esac
 OUTPUT_ROOT="$ROOT/data/outputs"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="$OUTPUT_ROOT/flight_001_siyi_a8_stage2_tensorrt_1080p_$STAMP"

@@ -100,8 +100,23 @@ def compute_lock_quality(
     return max(0.0, min(1.0, quality))
 
 
-def _touches_frame_boundary(track: Track) -> bool:
+def _touches_frame_boundary(track: Track, *, margin_px: float = 2.0) -> bool:
+    """Return True only if the bbox is partially OFF-frame.
+
+    The old check zeroed lock_quality whenever the bbox top-left edge was
+    within 1 px of x=0 or y=0. That penalizes any target near the upper
+    or left edge of the frame — exactly where an overhead drone naturally
+    appears. We only want to flag tracks whose bbox actually crosses the
+    image boundary, so we check all four edges against a small negative
+    margin (the bbox is allowed to touch the edge, just not extend past).
+    """
     d = track.detection
-    if d.x <= 1.0 or d.y <= 1.0:
+    fw = getattr(d, "frame_width", None)
+    fh = getattr(d, "frame_height", None)
+    if d.x < -margin_px or d.y < -margin_px:
+        return True
+    if fw is not None and d.x + d.w > fw + margin_px:
+        return True
+    if fh is not None and d.y + d.h > fh + margin_px:
         return True
     return False

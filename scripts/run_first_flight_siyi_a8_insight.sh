@@ -3,7 +3,11 @@ set -Eeuo pipefail
 
 ROOT="/home/office/SKY"
 PYTHON="$ROOT/.venv_jetson/bin/python"
-CONFIG="$ROOT/configs/deploy_jetson_siyi_a8_mini_stage2_engine_1080p.yaml"
+CONFIG="${SKY_CONFIG:-$ROOT/configs/deploy_jetson_siyi_a8_mini_stage2_engine_1080p.yaml}"
+case "$CONFIG" in
+    /*) ;;                              # absolute path -> use as-is
+    *)  CONFIG="$ROOT/$CONFIG" ;;        # relative path -> resolve under repo root
+esac
 ENGINE="$ROOT/data/models/yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix/best.engine"
 OUTPUT_ROOT="$ROOT/data/outputs"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"

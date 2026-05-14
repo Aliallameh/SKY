@@ -1,0 +1,291 @@
+# SIYI A8 Mini Zoom Gimbal Camera deployment profile, v2 (1080p @ 60 fps).
+#
+# Camera-side prerequisite: the SIYI Camera app's stream output must be
+# configured for 1920x1080 @ 60 fps. The Jetson side cannot force a stream
+# mode the camera firmware is not delivering. If the app is still set to
+# 1080p@30, the actual ingest will be 30 fps regardless of source.fps here.
+#
+# Diff from v1 (deploy_jetson_siyi_a8_mini_stage2_engine_1080p.yaml):
+#   - source.fps 25 -> 60 to match the camera's 1080p60 output. Tighter
+#     control loop: pixel error refreshed every 16.7 ms instead of 33-40 ms.
+#   - tracker / lock frame-count thresholds rescaled to keep the same
+#     TIME windows as v1 (otherwise 60 fps would halve every duration).
+#       acquired_to_tracking_frames    3 -> 8   (~120 ms preserved)
+#       tracking_to_locked_frames      8 -> 19  (~320 ms preserved)
+#       tracker.track_buffer_frames    30 -> 72 (~1.2 s preserved)
+#       tracker.max_prediction_only_frames 1 -> 5 (~80 ms preserved, +slack)
+#   - lock.min_lock_quality 0.50 -> 0.40 so confirmed tracks reach LOCKED
+#     more often (v1 yielded 36 LOCKED / 696 frames = 5%, gimbal idled 95%).
+#   - gimbal_follow.allowed_lock_states now mirrors guidance.validity:
+#     ["TRACKING","LOCKED","STRIKE_READY"]. With the softer kp/clamps
+#     below, TRACKING-state jitter is small enough to be a win.
+#   - gimbal_follow.min_confidence 0.35 -> 0.30 to match guidance.validity.
+#     Two different gates were creating silent rejections.
+#   - gimbal_follow.command_hz 20 -> 10 (SDK-recommended; avoids fighting
+#     the gimbal's internal control loop with 50 ms speed updates).
+#   - gimbal_follow.kp_yaw 18 -> 15, kp_pitch 14 -> 12. With max_*_cmd
+#     unchanged (15, 12), this means full proportional response right up
+#     to the frame edge instead of saturating at ~83% radius.
+#   - gimbal_follow.deadband 60/45 -> 40/30 px. Tighter centering since
+#     stop_after_lost_s is short.
+#   - gimbal_follow.stop_after_lost_s 0.15 -> 0.25 (smoother optics on
+#     short detector blinks, still bounded).
+#   - output.annotated_video_fps 5 -> 15 so the saved review video doesn't
+#     play back in slow motion.
+#
+# Outstanding open item (NOT a config change, requires bench):
+#   invert_yaw / invert_pitch are inferred, not bench-verified against the
+#   live image. Verify with scripts/dev/siyi_gimbal_bench.py while watching
+#   the operator-view scene shift. Rule:
+#     send +yaw -> scene shifts LEFT in image  => invert_yaw: false
+#     send +yaw -> scene shifts RIGHT in image => invert_yaw: true
+#     send +pitch -> scene shifts DOWN in image => invert_pitch: false
+#     send +pitch -> scene shifts UP   in image => invert_pitch: true
+
+schema_version: "skyscout.config.v1"
+profile_name: "deploy_jetson_siyi_a8_mini_stage2_engine_1080p_v2"
+
+source:
+  type: "siyi_a8_mini"
+  url: "rtsp://192.168.144.25:8554/main.264"
+  source_id: "siyi_a8_mini_main_rtsp"
+  transport: "tcp"
+  expected_width: 1920
+  expected_height: 1080
+  # 60 fps was tried 2026-05-12 and produced 4.6 fps end-to-end (worse than
+  # 25 fps which got 7.7 fps): decoder load eats GPU budget the detector
+  # needs. 30 fps is the sweet spot: low decode overhead, more frames than
+  # 25, and detector still keeps up. Camera app must match.
+  fps: 30.0
+  open_timeout_s: 10.0
+  read_timeout_s: 5.0
+  reconnect_delay_s: 1.0
+  first_frame_timeout_s: 20.0
+  max_frames: null
+  frame_stride: 1
+  strict: true
+
+camera:
+  calibration_id: "SIYI_A8_MINI_1080P_UNREVIEWED_v1"
+  is_calibrated: false
+  intrinsics:
+    fx: null
+    fy: null
+    cx: null
+    cy: null
+    distortion: null
+  resolution_wh: [1920, 1080]
+
+detector:
+  backend: "yolo_ultralytics"
+  # Reverted 2026-05-12 to stage-2 capped after V2 produced 0 detections
+  # across 113 frames in run 20260512T210354Z on the same bench scene where
+  # stage-2 had produced 363 / 540 hours earlier. V2 needs separate
+  # investigation (likely train-set domain mismatch with this drone variant).
+  # 640-input engine built 2026-05-12 (--workspace 0.25 at 15W power mode,
+  # 512 s build time, load-check passed at 374 ms first-frame predict).
+  # Same .pt source as the 1024 engine. Expected ~2.5x detector throughput.
+  weights: "data/models/yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix/best_imgsz640.engine"
+  input_size: 640
+  confidence_threshold: 0.15
+  iou_threshold: 0.45
+  keep_class_ids: [0, 1, 2, 3]
+  fallback_keep_high_conf: false
+  fallback_high_conf_threshold: 0.35
+  device: "0"
+  model_version: "yolo11s_airborne_stage2_multiclass_capped_aod4conf_b16w4_nomix_tensorrt_fp16_imgsz640_siyi_a8_mini_1080p_review"
+
+tracker:
+  backend: "single_target_kalman_lk"
+  # Effective control rate measured at ~4 fps end-to-end on this Jetson,
+  # i.e. ~250 ms between frames. A drone at 5 m/s only moves ~1 m frame-
+  # to-frame, but a hand-held one or fast yaw of our own gimbal can shift
+  # the bbox by hundreds of pixels. So the gating windows are widened to
+  # match that reality — otherwise the tracker drops the track every time
+  # it loses one frame.
+  match_threshold: 0.2
+  center_match_threshold_px: 200       # was 80; fits 4 fps inter-frame motion
+  lk_min_points: 6                      # was 8; small drones lack texture
+  reacquisition_radius_px: 320          # was 180; more recovery slack
+  max_primary_switches_per_second: 1.0
+  track_buffer_frames: 36               # 1.2 s at 30 fps preserved
+  max_prediction_only_frames: 5         # 167 ms; ride out 2 missed detections
+  min_prediction_confidence: 0.08
+  reject_edge_initial_detections: true
+  edge_reject_margin_px: 2.0
+  min_track_length: 3
+  ego_motion_compensation: false
+
+lock:
+  acceptable_lock_labels: ["drone"]
+  # The lock SM is the front-line filter that turns flickery detections
+  # into a stable target — but it only helps if its thresholds match the
+  # detector's reality. With ~4 fps effective and a model that hits ~60%
+  # detection rate, requiring 10 consecutive matches before LOCKED takes
+  # 2.5 seconds of perfect detection, which never happens. Relaxed to
+  # 3 -> tracking (100 ms) and 5 -> locked (167 ms).
+  acquired_to_tracking_frames: 3
+  tracking_to_locked_frames: 5
+  min_class_confidence: 0.25            # was 0.30; matches lower detector floor
+  min_lock_quality: 0.30                # was 0.40; admits noisier confirmed tracks
+  lost_to_aborted_seconds: 2.0
+  strike_ready:
+    min_locked_duration_seconds: 0.5
+    min_bbox_frame_fraction: 0.05
+    bbox_center_window: 0.5
+    max_cue_age_seconds: 5.0
+
+cue:
+  source: null
+  default_expiry_ms: 1500
+  default_position_sigma_m: 50.0
+
+range:
+  method: "none"
+  class_size_prior_m: {}
+
+guidance:
+  enabled: true
+  output_jsonl: true
+  camera:
+    mode: "fov"
+    horizontal_fov_deg: 81.0
+    vertical_fov_deg: null
+    frame_width_px: 1920
+    frame_height_px: 1080
+    fx_px: null
+    fy_px: null
+    cx_px: null
+    cy_px: null
+    assume_principal_point_center: true
+    calibration_reviewed: false
+  validity:
+    # advisory_before_lock=true means hints are emitted as "valid" during
+    # TRACKING even though TargetState.guidance_valid is False (PRD locks
+    # that to LOCKED+ for flight-controller authority). The gimbal cares
+    # about pixel error, not weapon-release authority, so we want hints
+    # to be valid as soon as the tracker is confirmed.
+    advisory_before_lock: true
+    allowed_lock_states: ["TRACKING", "LOCKED", "STRIKE_READY"]
+    acceptable_class_labels: ["drone"]
+    min_confidence: 0.25
+    # Was true. Tying hint validity to target_state.guidance_valid (which
+    # is LOCKED+ only) prevented the gimbal from acting on TRACKING hints
+    # even though they're geometrically usable.
+    require_guidance_valid_target_state: false
+    max_stale_frames: 3
+  filtering:
+    enabled: true
+    ema_alpha: 0.35
+    prediction_enabled: true
+    lead_time_s: 0.20
+    max_prediction_px: 250
+    history_len: 8
+  controller:
+    enabled: true
+    mode: "yaw_p"
+    kp_yaw: 2.0
+    deadband_deg: 1.0
+    max_yaw_rate_deg_s: 45.0
+    max_delta_yaw_rate_deg_s: 20.0
+    pitch_command_enabled: false
+  overlay:
+    enabled: true
+    draw_optical_center: true
+    draw_target_center: true
+    draw_error_vector: true
+    draw_text: true
+    draw_bbox_geometry: true
+
+gimbal_follow:
+  # Image-space pixel-error servo. Sends SIYI CMD_ID 0x07 (gimbal rotation
+  # speed, signed bytes in [-100, 100]) over UDP to 192.168.144.25:37260.
+  #
+  # Unit convention:
+  #   yaw_cmd / pitch_cmd are raw SIYI speed units, NOT deg/s.
+  #   normalized_error[i] is in [-1, +1] across the image half-frame, so:
+  #     raw_cmd = kp_axis * normalized_error_axis
+  #   then clamped to [-max_axis_cmd, +max_axis_cmd].
+  #   With kp_yaw=15 / max_yaw_cmd=15 we get full proportional response
+  #   right to the frame edge (no saturation).
+  enabled: false              # safety default; toggle via env or --gimbal-follow-enabled
+  dry_run: true               # safety default; toggle off only after sign verification
+  backend: "siyi_udp"
+  host: "192.168.144.25"
+  port: 37260
+  timeout_s: 0.20
+  # Mirror guidance.validity.allowed_lock_states so the gimbal acts on the
+  # same hints the guidance layer publishes. Including TRACKING gives the
+  # controller something to do during the long pre-LOCK interval.
+  # detection_only was tried and made things WORSE: bypassing the tracker
+  # filter means every noisy single-frame bbox center gets servoed to,
+  # so the gimbal hunts. The right architecture is detect -> Kalman track
+  # -> lock SM -> servo. We just made each stage cheaper to satisfy so
+  # the chain actually completes in this detection regime.
+  detection_only: false
+  allowed_lock_states: ["TRACKING", "LOCKED", "STRIKE_READY"]
+  min_confidence: 0.25
+  command_hz: 10.0
+  deadband_px_x: 60.0
+  deadband_px_y: 45.0
+  # KP TUNING SWEEP — iteration 1 (kp x1.5, clamps x1.5).
+  # Baseline at kp 10/8 (run 20260513T001541Z) produced 106 valid commands,
+  # yaw range -12..+3 (negative side hit the clamp), pitch -1..+7.
+  # Goal: faster convergence to center without overshoot or oscillation.
+  kp_yaw: 15.0
+  kp_pitch: 12.0
+  max_yaw_cmd: 18
+  max_pitch_cmd: 15
+  # CORRECTED 2026-05-12: guidance.bearing flips Y to aviation Y-up
+  # convention (pixel_error_y = frame_y - target_y, NOT target_y - frame_y).
+  # So pixel_error_y > 0 means target ABOVE center, and the controller's
+  # raw kp*norm_y is already the correct sign for SIYI (+pitch = tilt up).
+  # No invert needed. Earlier "math says invert pitch" was based on a wrong
+  # Y-down assumption; the run-19:00:57 sign matrix had pitch tilting DOWN
+  # for above-center targets, which the user correctly identified as wrong.
+  invert_yaw: false
+  invert_pitch: false
+  stop_after_lost_s: 0.25
+  log_jsonl: true
+  log_filename: "gimbal_follow_commands.jsonl"
+
+mock_bridge:
+  enabled: false
+  output_jsonl: true
+  require_reviewed_calibration: true
+  allowed_lock_states: ["LOCKED", "STRIKE_READY"]
+  require_guidance_hint_valid: true
+  max_abs_yaw_rate_deg_s: 45.0
+
+evaluation:
+  enabled: false
+  gt_path: null
+
+output:
+  save_annotated_video: true
+  save_raw_video: true
+  save_target_states_jsonl: true
+  save_raw_detections: false
+  save_diagnostics_csv: true
+  save_manifest: true
+  # 15 fps annotated video at 30 fps source = 2x playback compression,
+  # still smooth enough to review slew dynamics.
+  annotated_video_fps: 15.0
+
+operator_view:
+  enabled: true
+  mode: "window"
+  host: "0.0.0.0"
+  port: 8090
+  max_width: 1280
+  jpeg_quality: 70
+  window_name: "SkyScouter Operator View"
+  fullscreen: true
+  display_width: 1920
+  display_height: 1080
+  window_x: 0
+  window_y: 0
+  window_backend: "gstreamer"
+  # v1 used 10. At 60 fps source bumping to 30 gives a much smoother
+  # operator view; HDMI/Insight downlinks comfortably handle 30 fps.
+  display_fps: 30

@@ -66,14 +66,20 @@ camera:
 detector:
   backend: "yolo_ultralytics"
   weights: "data/models/yolov26_lrdd_v2/best.engine"
-  input_size: 384
+  # Engine rebuilt at imgsz=640 after the imgsz=384 first bench produced
+  # 13 detections / 888 frames (~1.5%). Root cause: 1920x1080 letterboxed
+  # to 384 collapses a typical 100x60 px drone bbox to ~20x12 px in model
+  # input -- below the stride-8 head's reliable range. At 640 the same
+  # drone becomes ~33x20 px in input. The v4 branch's own configs/
+  # yolov26_eval.yaml documents 640 as the runtime size.
+  input_size: 640
   confidence_threshold: 0.25
   iou_threshold: 0.45
   keep_class_ids: [0]
   fallback_keep_high_conf: false
   fallback_high_conf_threshold: 0.35
   device: "0"
-  model_version: "yolov26n_lrdd_v2_tensorrt_fp16_imgsz384_siyi_a8_mini_1080p_first_bench"
+  model_version: "yolov26n_lrdd_v2_tensorrt_fp16_imgsz640_siyi_a8_mini_1080p_gimbal_follow"
 
 tracker:
   backend: "single_target_kalman_lk"
@@ -158,8 +164,8 @@ guidance:
     draw_bbox_geometry: true
 
 gimbal_follow:
-  enabled: false              # safety default; toggle on after detection sanity check
-  dry_run: true               # safety default; verify signs via bench first
+  enabled: true               # gimbal follow ON for live test
+  dry_run: false              # commands ACTUALLY SENT to SIYI (verify signs via bench first)
   backend: "siyi_udp"
   host: "192.168.144.25"
   port: 37260

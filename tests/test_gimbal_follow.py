@@ -189,6 +189,28 @@ def test_controller_rate_limits_commands(tmp_path: Path):
     ctrl.close()
 
 
+def test_controller_detection_only_bypasses_validity_and_lock_gate(tmp_path: Path):
+    ctrl = _ctrl(tmp_path, detection_only=True, min_confidence=0.20)
+    hint = _hint(lock_state="SEARCHING", confidence=0.40,
+                 pixel_error=(200.0, -200.0), normalized_error=(1.0, -1.0))
+    # Prove the bypass by explicitly marking the hint invalid.
+    hint.valid = False
+    cmd = ctrl.consume(hint)
+    assert cmd is not None and cmd.valid is True
+    # kp_yaw=35 * 1.0 = 35 clamped to max_yaw_cmd=25; kp_pitch=28 * -1.0 = -28 clamped to -20
+    assert cmd.yaw_cmd == 25
+    assert cmd.pitch_cmd == -20
+    ctrl.close()
+
+
+def test_controller_detection_only_still_enforces_confidence(tmp_path: Path):
+    ctrl = _ctrl(tmp_path, detection_only=True, min_confidence=0.50)
+    cmd = ctrl.consume(_hint(lock_state="SEARCHING", confidence=0.10))
+    assert cmd is not None and cmd.valid is False
+    assert any("confidence" in r for r in cmd.reason)
+    ctrl.close()
+
+
 def test_controller_rejects_unknown_backend_when_live(tmp_path: Path):
     with pytest.raises(ValueError):
         GimbalFollowController(

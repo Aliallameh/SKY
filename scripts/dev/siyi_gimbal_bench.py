@@ -53,6 +53,10 @@ def parse_args() -> argparse.Namespace:
                    help="Duration to hold the command (seconds) in single command mode")
     p.add_argument("--rate-hz", type=float, default=10.0,
                    help="Resend rate while a non-zero command is held (Hz)")
+    p.add_argument("--center", action="store_true",
+                   help="Send only the SIYI 'center gimbal' command (CMD_ID 0x08) "
+                        "and exit. Use this to recover when a prior command drove "
+                        "the gimbal to a mechanical limit.")
     return p.parse_args()
 
 
@@ -77,6 +81,21 @@ def _print_packet(yaw: int, pitch: int) -> None:
 
 def main() -> int:
     args = parse_args()
+
+    if args.center:
+        mode = "LIVE_UDP" if args.send else "DRY_RUN"
+        print(f"SIYI gimbal CENTER  target={args.host}:{args.port}  mode={mode}")
+        if not args.send:
+            print("Dry run — would send CMD_ID 0x08 with payload 0x01. Re-run with --send.")
+            return 0
+        client = SiyiGimbalClient(host=args.host, port=args.port)
+        try:
+            client.center()
+            print("Center command sent. Gimbal should return to neutral attitude.")
+        finally:
+            client.close()
+        return 0
+
     if args.send and (args.yaw is not None or args.pitch is not None):
         if args.yaw is None or args.pitch is None:
             print("--yaw and --pitch must be set together for single command mode", file=sys.stderr)

@@ -16,6 +16,7 @@ from typing import Optional
 _STX = b"\x55\x66"
 _CTRL_NEED_ACK = 0x01
 _CMD_GIMBAL_ROTATION = 0x07
+_CMD_GIMBAL_CENTER = 0x08
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,20 @@ class SiyiGimbalClient:
 
     def stop(self) -> bytes:
         return self.rotate(0, 0)
+
+    def center(self) -> bytes:
+        """Send the SIYI 'center gimbal' command (CMD_ID 0x08).
+
+        The gimbal returns to its neutral (level forward) attitude. Useful
+        when a prior speed command has driven it to a mechanical limit.
+        """
+        payload = bytes([0x01])
+        packet = self._build_packet(_CMD_GIMBAL_CENTER, payload)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("SIYI gimbal client is closed")
+            self._sock.sendto(packet, self._addr)
+        return packet
 
     def close(self) -> None:
         with self._lock:

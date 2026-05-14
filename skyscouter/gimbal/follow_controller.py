@@ -41,6 +41,11 @@ class GimbalFollowController:
         self._allowed_lock_states = _normalized_set(
             self._cfg.get("allowed_lock_states", ["TRACKING", "LOCKED", "STRIKE_READY"])
         )
+        # detection_only: bypass guidance validity AND the lock-state filter.
+        # Useful for bench tests where the lock SM is unreliable and you want
+        # the gimbal to act on any in-frame detection above min_confidence.
+        # NOT for flight — removes the safety gating those checks provide.
+        self._detection_only = bool(self._cfg.get("detection_only", False))
         self._min_confidence = float(self._cfg.get("min_confidence", 0.35))
         # command_hz <= 0 disables rate limiting (useful for tests / replay).
         command_hz = float(self._cfg.get("command_hz", 10.0))
@@ -167,13 +172,16 @@ class GimbalFollowController:
         if hint is None:
             return ["no_guidance_hint"]
         reasons: list[str] = []
-        if not hint.valid:
-            reasons.append("guidance_hint_invalid")
+        # detection_only mode skips guidance validity and the lock-state gate.
+        # The geometric checks (pixel error present, confidence) still apply.
+        if not self._detection_only:
+            if not hint.valid:
+                reasons.append("guidance_hint_invalid")
+            lock_state = str(hint.source_lock_state or "").upper().strip()
+            if lock_state not in self._allowed_lock_states:
+                reasons.append(f"lock_state_not_allowed:{hint.source_lock_state}")
         if hint.pixel_error_px is None or hint.normalized_error is None:
             reasons.append("missing_image_error")
-        lock_state = str(hint.source_lock_state or "").upper().strip()
-        if lock_state not in self._allowed_lock_states:
-            reasons.append(f"lock_state_not_allowed:{hint.source_lock_state}")
         if hint.confidence is None or float(hint.confidence) < self._min_confidence:
             reasons.append("confidence_below_minimum")
         return reasons

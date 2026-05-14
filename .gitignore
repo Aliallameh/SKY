@@ -65,3 +65,7 @@ Ultralytics/
 .venv/
 .venv_train/
 venv/
+
+# Local raw datasets and generated training sets
+data/raw/
+data/training/yolov26_lrdd_no_bird/

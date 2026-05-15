@@ -17,6 +17,7 @@ _STX = b"\x55\x66"
 _CTRL_NEED_ACK = 0x01
 _CMD_GIMBAL_ROTATION = 0x07
 _CMD_GIMBAL_CENTER = 0x08
+_CMD_PHOTO_VIDEO = 0x0C   # SIYI "Photo / Record" command, payload byte selects action
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,24 @@ class SiyiGimbalClient:
         """
         payload = bytes([0x01])
         packet = self._build_packet(_CMD_GIMBAL_CENTER, payload)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("SIYI gimbal client is closed")
+            self._sock.sendto(packet, self._addr)
+        return packet
+
+    def take_photo(self) -> bytes:
+        """Send the SIYI 'take photo' command (CMD_ID 0x0C, payload 0x00).
+
+        The camera captures a full-resolution still and writes it to the
+        microSD card inside the camera body. The photo is NOT transmitted
+        back to the Jetson; retrieve it later via the SIYI app, by pulling
+        the card, or via the camera's media-access endpoint if supported
+        by the firmware version. For a frame from the live RTSP stream
+        captured straight to Jetson disk, see scripts/dev/grab_rtsp_snapshot.py.
+        """
+        payload = bytes([0x00])
+        packet = self._build_packet(_CMD_PHOTO_VIDEO, payload)
         with self._lock:
             if self._closed:
                 raise RuntimeError("SIYI gimbal client is closed")

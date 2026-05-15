@@ -57,6 +57,12 @@ def parse_args() -> argparse.Namespace:
                    help="Send only the SIYI 'center gimbal' command (CMD_ID 0x08) "
                         "and exit. Use this to recover when a prior command drove "
                         "the gimbal to a mechanical limit.")
+    p.add_argument("--photo", action="store_true",
+                   help="Send only the SIYI 'take photo' command (CMD_ID 0x0C, "
+                        "payload 0x00) and exit. The camera saves a full-resolution "
+                        "still to its microSD card; the photo is NOT returned over "
+                        "UDP. For a snapshot saved on the Jetson, use "
+                        "scripts/dev/grab_rtsp_snapshot.py instead.")
     return p.parse_args()
 
 
@@ -92,6 +98,21 @@ def main() -> int:
         try:
             client.center()
             print("Center command sent. Gimbal should return to neutral attitude.")
+        finally:
+            client.close()
+        return 0
+
+    if args.photo:
+        mode = "LIVE_UDP" if args.send else "DRY_RUN"
+        print(f"SIYI camera PHOTO  target={args.host}:{args.port}  mode={mode}")
+        if not args.send:
+            print("Dry run — would send CMD_ID 0x0C with payload 0x00. Re-run with --send.")
+            return 0
+        client = SiyiGimbalClient(host=args.host, port=args.port)
+        try:
+            client.take_photo()
+            print("Photo command sent. Image written to the camera's microSD card.")
+            print("Retrieve via the SIYI app, pulled card, or grab_rtsp_snapshot.py for a Jetson-side copy.")
         finally:
             client.close()
         return 0

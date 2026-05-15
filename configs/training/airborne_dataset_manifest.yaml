@@ -5,10 +5,6 @@ schema_version: "skyscout.airborne_dataset_manifest.v1"
 # airborne semantics first; the tracker then owns temporal identity.
 target_classes:
   - drone
-  - bird
-  - airplane
-  - helicopter
-  - unknown_airborne
 
 split:
   train: 0.80
@@ -20,7 +16,7 @@ sources:
   # Primary external dataset to add first. Expected role: drone/bird/aircraft
   # semantic separation in complex sky/weather backgrounds.
   - name: aod4_airborne_objects
-    enabled: true
+    enabled: false
     type: yolo_detection
     root: "C:/Users/Ali/Documents/Datasets/AOD 4"
     images_dir: "Images"
@@ -48,7 +44,7 @@ sources:
   - name: anti_uav300_rgb
     enabled: true
     type: anti_uav_rgbt
-    root: "C:/Users/Ali/Desktop/Anti-UAV-RGBT"
+    root: "/SKY/DATASETS/1_Anti-UAV-RGBT"
     modality: rgb
     splits:
       - train
@@ -80,25 +76,24 @@ sources:
 
   # Add when available. Expected role: long-range/small-pixel drone recall.
   - name: lrddv2_long_range_drone
-    enabled: false
+    enabled: true
     type: yolo_detection
-    root: "/absolute/path/to/LRDDv2-yolo"
-    images_dir: "images"
-    labels_dir: "labels"
+    root: "/SKY/DATASETS/6_LRDDv2_v4_yolov26"
+    images_dir: "train/images"
+    labels_dir: "train/labels"
     source_classes: ["drone"]
     class_map:
-      drone: drone
-    notes: "Use for 50px-or-smaller drone recall; exact conversion depends on obtained format."
+      "0": drone
+    notes: "LRDDv2 dataset for long-range drone recall. 38.2k images, 384x384 resize."
 
   # Local acceptance/evaluation labels from my_drone_chase.MP4. Keep this small
   # and honest. Use positives for domain adaptation only after reserving a copy
   # for acceptance evaluation.
   - name: local_my_drone_chase_sparse_gt
-    enabled: true
+    enabled: false
     type: skyscouter_sparse_gt_video
     video_path: "C:/Users/Ali/Desktop/SKY/data/videos/my_drone_chase.MP4"
     gt_csv: "C:/Users/Ali/Documents/Datasets/drone_sparse_gt_corrected.csv"
     include_labels:
       - drone
-      - negative
-    notes: "User-corrected sparse GT; 44 positive drone frames and 45 hard negatives as of 2026-04-28. Small local domain-adaptation set."
+    notes: "User-corrected sparse GT; disabled for drone-only combined dataset. 44 positive drone frames as of 2026-04-28."

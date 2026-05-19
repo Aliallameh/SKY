@@ -70,7 +70,7 @@ download_gdrive_item() {
   fi
 
   echo "Downloading: $link"
-  gdown --fuzzy "$link" -O "$output_dir/"
+  gdown "$link" -O "$output_dir/"
 }
 
 extract_archives() {

@@ -44,7 +44,7 @@ sources:
   - name: anti_uav300_rgb
     enabled: true
     type: anti_uav_rgbt
-    root: "/SKY/DATASETS/1_Anti-UAV-RGBT"
+    root: "./DATASETS/1_Anti-UAV-RGBT"
     modality: rgb
     splits:
       - train
@@ -78,7 +78,7 @@ sources:
   - name: lrddv2_long_range_drone
     enabled: true
     type: yolo_detection
-    root: "/SKY/DATASETS/6_LRDDv2_v4_yolov26"
+    root: "./DATASETS/6_LRDDv2_v4_yolov26"
     images_dir: "train/images"
     labels_dir: "train/labels"
     source_classes: ["drone"]
@@ -103,7 +103,7 @@ sources:
   - name: drone_detection_maciullo
     enabled: true
     type: yolo_detection
-    root: "/SKY/DATASETS/7_Drone Detection Dataset_Maciullo"
+    root: "./DATASETS/7_Drone Detection Dataset_Maciullo"
     splits:
       - train
       - val

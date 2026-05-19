@@ -256,6 +256,14 @@ Build a YOLO dataset:
   --link-mode copy
 ```
 
+for Linux/WSL:
+```bash
+./.venv/bin/python scripts/prepare_airborne_training_set.py \
+  --manifest configs/training/airborne_dataset_manifest.yaml \
+  --out-dir data/training/airborne_yolo_v3 \
+  --link-mode copy
+```
+
 Train:
 
 ```powershell

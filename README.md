@@ -364,3 +364,16 @@ Curated `data/models/**/*.pt` files are the exception and are tracked by Git LFS
 No hardcoded boxes. No filename tricks. No fake detections. If the model misses, the report should say so plainly.
 
 That is how this project stays useful.
+
+
+## Maciullo dataset 
+
+GitHub: https://github.com/Maciullo/DroneDetectionDataset
+
+To downlaod and convert the dataset to YOLOv26 format:
+
+```bash
+cd "/DATASETS/7_Drone Detection Dataset_Maciullo"
+chmod +x download_and_convert_linux.sh
+./download_and_convert_linux.sh
+```

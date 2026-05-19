@@ -136,31 +136,42 @@ convert_split() {
   local split="$1"
   local split_extract_dir="$2"
 
-  if [[ ! -d "$split_extract_dir" ]]; then
-    echo "No extracted folder for split: $split"
-    echo "Skipping $split"
+  local image_dir=""
+  local xml_dir=""
+
+  if [[ "$split" == "train" ]]; then
+    image_dir="$split_extract_dir/Drone_TrainSet"
+    xml_dir="$split_extract_dir/Drone_TrainSet_XMLs"
+
+  elif [[ "$split" == "val" ]]; then
+    image_dir="$split_extract_dir/Drone_TestSet"
+    xml_dir="$split_extract_dir/Drone_TestSet_XMLs"
+
+  elif [[ "$split" == "test" ]]; then
+    echo "No test dataset link provided. Skipping test."
     return 0
   fi
 
-  if ! find "$split_extract_dir" -type f -iname "*.xml" | grep -q .; then
-    echo "No XML labels found for split: $split"
-    echo "Skipping $split"
+  if [[ ! -d "$image_dir" ]]; then
+    echo "Images folder not found: $image_dir"
     return 0
   fi
 
-  if ! find "$split_extract_dir" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.bmp" \) | grep -q .; then
-    echo "No images found for split: $split"
-    echo "Skipping $split"
+  if [[ ! -d "$xml_dir" ]]; then
+    echo "XML folder not found: $xml_dir"
     return 0
   fi
 
   echo "Converting $split"
-  echo "Input root: $split_extract_dir"
-  echo "Output dir: $ROOT_DIR/$split"
+  echo "Images: $image_dir"
+  echo "XMLs:   $xml_dir"
 
   python3 "$CONVERTER" \
-    --input-root "$split_extract_dir" \
-    --output-dir "$ROOT_DIR/$split"
+    --images-dir "$image_dir" \
+    --xml-dir "$xml_dir" \
+    --output-images-dir "$ROOT_DIR/$split/images" \
+    --output-labels-dir "$ROOT_DIR/$split/labels" \
+    --classes "${CLASSES[@]}"
 }
 
 verify_split() {

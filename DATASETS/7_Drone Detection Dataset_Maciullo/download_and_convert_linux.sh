@@ -10,6 +10,9 @@ set -euo pipefail
 # ============================================================
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+rm -rf "$ROOT_DIR/_raw_extracted" "$ROOT_DIR/_raw_downloads" "$ROOT_DIR/test" "$ROOT_DIR/train" "$ROOT_DIR/val"
+
 RAW_DIR="$ROOT_DIR/_raw_downloads"
 EXTRACT_DIR="$ROOT_DIR/_raw_extracted"
 CONVERTER="$ROOT_DIR/convert_voc_to_yolov26.py"

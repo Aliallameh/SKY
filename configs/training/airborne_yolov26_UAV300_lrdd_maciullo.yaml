@@ -10,17 +10,17 @@ dataset:
 model:
   family: "ultralytics_yolo"
   base_weights: "yolov26n.pt"  # Nano variant
-  image_size: 384  # Matches dataset resize
+  image_size: 1024  # Matches dataset resize
   pretrained: true
 
 training:
   epochs: 50  # Adjust as needed
-  batch: 8
+  batch: 96
   patience: 20
   workers: 8
   device: "auto"
   project: "data/training/runs"
-  run_name: "yolov26_lrdd_v2"
+  run_name: "yolov26_UAV300_lrdd_maciullo"
   optimizer: "auto"
   close_mosaic: 10
   seed: 42

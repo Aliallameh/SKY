@@ -97,3 +97,22 @@ sources:
     include_labels:
       - drone
     notes: "User-corrected sparse GT; disabled for drone-only combined dataset. 44 positive drone frames as of 2026-04-28."
+
+  # Drone Detection Dataset - Maciullo
+  # Converted YOLO dataset with existing train/val folders.
+  - name: drone_detection_maciullo
+    enabled: true
+    type: yolo_detection
+    root: "/SKY/DATASETS/7_Drone Detection Dataset_Maciullo"
+    splits:
+      - train
+      - val
+    images_dir: "images"
+    labels_dir: "labels"
+    source_classes: ["drone"]
+    class_map:
+      "0": drone
+    notes: >
+      Maciulllo drone detection dataset converted to YOLO format.
+      Uses existing train/val folders. Expected structure:
+      train/images, train/labels, val/images, val/labels.

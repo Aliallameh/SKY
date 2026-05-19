@@ -32,6 +32,9 @@ data/outputs/
 data/engines/
 data/models/**/exports/
 
+# Annotation workspaces (raw frames and labelling UI – managed separately, not in VCS)
+annotations/
+
 # Raw external datasets stay local.
 DATASETS/
 

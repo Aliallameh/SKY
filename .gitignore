@@ -27,7 +27,8 @@ data/outputs/
 
 # Raw external datasets stay local. Keep this root-anchored so scripts/datasets/
 # stays visible to Git on case-insensitive Windows filesystems.
-/DATASETS/
+/DATASETS/6_LRDDv2_yolov26/
+
 
 # Local training logs (UTF-16 PowerShell tee output, can grow into tens of MB)
 data/training/*.log

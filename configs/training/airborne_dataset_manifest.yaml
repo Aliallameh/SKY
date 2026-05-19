@@ -98,21 +98,31 @@ sources:
       - drone
     notes: "User-corrected sparse GT; disabled for drone-only combined dataset. 44 positive drone frames as of 2026-04-28."
 
-  # Drone Detection Dataset - Maciullo
-  # Converted YOLO dataset with existing train/val folders.
-  - name: drone_detection_maciullo
+# Drone Detection Dataset - Maciullo
+  # Existing YOLO train/val folders are treated as input pools.
+  # Final train/val/test split is handled by this script.
+  - name: drone_detection_maciullo_train
     enabled: true
     type: yolo_detection
     root: "./DATASETS/7_Drone Detection Dataset_Maciullo"
-    splits:
-      - train
-      - val
-    images_dir: "images"
-    labels_dir: "labels"
+    images_dir: "train/images"
+    labels_dir: "train/labels"
     source_classes: ["drone"]
     class_map:
       "0": drone
     notes: >
-      Maciulllo drone detection dataset converted to YOLO format.
-      Uses existing train/val folders. Expected structure:
-      train/images, train/labels, val/images, val/labels.
+      Maciullo original train folder. Loaded as input data; final split is
+      assigned by prepare_airborne_training_set.py.
+
+  - name: drone_detection_maciullo_val
+    enabled: true
+    type: yolo_detection
+    root: "./DATASETS/7_Drone Detection Dataset_Maciullo"
+    images_dir: "val/images"
+    labels_dir: "val/labels"
+    source_classes: ["drone"]
+    class_map:
+      "0": drone
+    notes: >
+      Maciullo original val folder. Loaded as input data; final split is
+      assigned by prepare_airborne_training_set.py.

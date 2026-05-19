@@ -238,6 +238,6 @@ verify_split "train"
 verify_split "val"
 verify_split "test"
 
-cleanup_raw
+#cleanup_raw
 
 echo "Done."

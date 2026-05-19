@@ -184,86 +184,60 @@ roboflow:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert Drone Pascal VOC XML dataset to YOLO format."
+        description="Convert Pascal VOC XML dataset to YOLO format."
     )
 
-    parser.add_argument(
-        "--input-root",
-        type=str,
-        required=True,
-        help="Path to root folder containing DroneTrainDataset and DroneTestDataset"
-    )
-
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        required=True,
-        help="Output YOLO dataset directory"
-    )
-
-    parser.add_argument(
-        "--valid-ratio",
-        type=float,
-        default=0.2,
-        help="Ratio of training data to use for validation. Default: 0.2"
-    )
-
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed for train/valid split"
-    )
+    parser.add_argument("--images-dir", type=str, required=True)
+    parser.add_argument("--xml-dir", type=str, required=True)
+    parser.add_argument("--output-images-dir", type=str, required=True)
+    parser.add_argument("--output-labels-dir", type=str, required=True)
+    parser.add_argument("--classes", nargs="+", default=["drone"])
 
     args = parser.parse_args()
 
-    input_root = Path(args.input_root)
-    output_dir = Path(args.output_dir)
+    global CLASS_NAMES, CLASS_TO_ID
+    CLASS_NAMES = args.classes
+    CLASS_TO_ID = {name: idx for idx, name in enumerate(CLASS_NAMES)}
 
-    train_images_dir = input_root / "DroneTrainDataset" / "Drone_TrainSet"
-    train_xmls_dir = input_root / "DroneTrainDataset" / "Drone_TrainSet_XMLs"
+    images_dir = Path(args.images_dir)
+    xmls_dir = Path(args.xml_dir)
+    output_images_dir = Path(args.output_images_dir)
+    output_labels_dir = Path(args.output_labels_dir)
 
-    test_images_dir = input_root / "DroneTestDataset" / "Drone_TestSet"
-    test_xmls_dir = input_root / "DroneTestDataset" / "Drone_TestSet_XMLs"
+    if not images_dir.exists():
+        raise FileNotFoundError(f"Images folder not found: {images_dir}")
 
-    if not train_images_dir.exists():
-        raise FileNotFoundError(f"Training images folder not found: {train_images_dir}")
+    if not xmls_dir.exists():
+        raise FileNotFoundError(f"XML folder not found: {xmls_dir}")
 
-    if not train_xmls_dir.exists():
-        raise FileNotFoundError(f"Training XML folder not found: {train_xmls_dir}")
+    output_images_dir.mkdir(parents=True, exist_ok=True)
+    output_labels_dir.mkdir(parents=True, exist_ok=True)
 
-    if not test_images_dir.exists():
-        raise FileNotFoundError(f"Test images folder not found: {test_images_dir}")
+    samples = collect_samples(images_dir, xmls_dir)
 
-    if not test_xmls_dir.exists():
-        raise FileNotFoundError(f"Test XML folder not found: {test_xmls_dir}")
+    print(f"Images dir: {images_dir}")
+    print(f"XML dir: {xmls_dir}")
+    print(f"Matched samples: {len(samples)}")
 
-    make_dirs(output_dir)
+    for img_path, xml_path in samples:
+        try:
+            _, yolo_lines = parse_voc_xml(xml_path)
 
-    train_samples_all = collect_samples(train_images_dir, train_xmls_dir)
-    test_samples = collect_samples(test_images_dir, test_xmls_dir)
+            output_image_name = img_path.name
+            output_label_name = f"{img_path.stem}.txt"
 
-    random.seed(args.seed)
-    random.shuffle(train_samples_all)
+            shutil.copy2(img_path, output_images_dir / output_image_name)
 
-    valid_count = int(len(train_samples_all) * args.valid_ratio)
+            label_path = output_labels_dir / output_label_name
+            with open(label_path, "w", encoding="utf-8") as f:
+                if yolo_lines:
+                    f.write("\n".join(yolo_lines))
+                    f.write("\n")
 
-    valid_samples = train_samples_all[:valid_count]
-    train_samples = train_samples_all[valid_count:]
+        except Exception as e:
+            print(f"Error processing {xml_path}: {e}")
 
-    print(f"Total original train samples: {len(train_samples_all)}")
-    print(f"Train samples: {len(train_samples)}")
-    print(f"Valid samples: {len(valid_samples)}")
-    print(f"Test samples: {len(test_samples)}")
-
-    copy_and_convert_samples(train_samples, output_dir, "train")
-    copy_and_convert_samples(valid_samples, output_dir, "valid")
-    copy_and_convert_samples(test_samples, output_dir, "test")
-
-    write_data_yaml(output_dir)
-
-    print("\nConversion completed successfully.")
-    print(f"YOLO dataset saved to: {output_dir}")
+    print("Conversion completed successfully.")
 
 
 if __name__ == "__main__":

@@ -133,28 +133,31 @@ convert_split() {
   local split="$1"
   local split_extract_dir="$2"
 
-  local image_dir
-  local xml_dir
+  if [[ ! -d "$split_extract_dir" ]]; then
+    echo "No extracted folder for split: $split"
+    echo "Skipping $split"
+    return 0
+  fi
 
-  image_dir="$(find_image_dir "$split_extract_dir" || true)"
-  xml_dir="$(find_xml_dir "$split_extract_dir" || true)"
+  if ! find "$split_extract_dir" -type f -iname "*.xml" | grep -q .; then
+    echo "No XML labels found for split: $split"
+    echo "Skipping $split"
+    return 0
+  fi
 
-  if [[ -z "${image_dir:-}" || -z "${xml_dir:-}" ]]; then
-    echo "No images/XML labels found for split: $split"
+  if ! find "$split_extract_dir" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.bmp" \) | grep -q .; then
+    echo "No images found for split: $split"
     echo "Skipping $split"
     return 0
   fi
 
   echo "Converting $split"
-  echo "Images: $image_dir"
-  echo "XMLs:   $xml_dir"
+  echo "Input root: $split_extract_dir"
+  echo "Output dir: $ROOT_DIR/$split"
 
   python3 "$CONVERTER" \
-    --images-dir "$image_dir" \
-    --xml-dir "$xml_dir" \
-    --output-images-dir "$ROOT_DIR/$split/images" \
-    --output-labels-dir "$ROOT_DIR/$split/labels" \
-    --classes "${CLASSES[@]}"
+    --input-root "$split_extract_dir" \
+    --output-dir "$ROOT_DIR/$split"
 }
 
 verify_split() {
@@ -177,8 +180,17 @@ verify_split() {
 }
 
 cleanup_raw() {
-  echo "Deleting raw downloads/extracted folders..."
-  rm -rf "$RAW_DIR" "$EXTRACT_DIR"
+  echo "Cleaning everything except .sh, .py, train, val, and test..."
+
+  find "$ROOT_DIR" -mindepth 1 -maxdepth 1 \
+    ! -name "train" \
+    ! -name "val" \
+    ! -name "test" \
+    ! -name "*.sh" \
+    ! -name "*.py" \
+    -exec rm -rf {} +
+
+  echo "Cleanup done."
 }
 
 if [[ ! -f "$CONVERTER" ]]; then

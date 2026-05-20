@@ -47,6 +47,14 @@ def main() -> int:
     train_cfg = cfg.get("training", {})
     aug_cfg = cfg.get("augmentation", {})
 
+    if args.resume:
+        resume_ckpt = Path(args.resume)
+        if not resume_ckpt.exists():
+            raise SystemExit(f"Resume checkpoint not found: {resume_ckpt}")
+        model = YOLO(str(resume_ckpt))
+        model.train(resume=True)
+        return 0
+
     weights = args.weights or model_cfg.get("base_weights", "yolo11s.pt")
     model = YOLO(weights)
 

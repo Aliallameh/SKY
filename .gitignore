@@ -67,7 +67,7 @@ __pycache__/
 # OS
 .DS_Store
 .claude/
-Ultralytics/
+# Ultralytics/
 
 # Environment
 .venv/

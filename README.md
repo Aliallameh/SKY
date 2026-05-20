@@ -65,6 +65,13 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
+for linux:
+```bash
+python3.12 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip setuptools wheel
+./.venv/bin/python -m pip install -r requirements.txt
+```
+
 If `py -3.12` is not available, use your installed Python:
 
 ```powershell
@@ -260,7 +267,7 @@ for Linux/WSL:
 ```bash
 ./.venv/bin/python scripts/prepare_airborne_training_set.py \
   --manifest configs/training/airborne_dataset_manifest.yaml \
-  --out-dir data/training/airborne_yolo_v3 \
+  --out-dir data/training/yolov26_UAV300_lrdd_maciullo \
   --link-mode copy
 ```
 
@@ -268,6 +275,13 @@ Train:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/train_airborne_yolo.py `
+  --config configs/training/airborne_yolo11.yaml
+```
+
+For Linux/WSL:
+
+```bash
+./.venv/bin/python scripts/train_airborne_yolo.py \
   --config configs/training/airborne_yolo11.yaml
 ```
 

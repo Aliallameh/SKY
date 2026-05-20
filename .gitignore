@@ -20,6 +20,8 @@ data/training/converted/
 data/training/airborne_stage*/
 data/training/airborne_yolo_v3_finetune_quick/
 data/training/.ultralytics/
+data/training/airborne_yolo_v3/
+data/training/yolov26_UAV300_lrdd_maciullo/
 
 # Training outputs
 runs/
@@ -77,3 +79,6 @@ venv/
 # Local raw datasets and generated training sets
 data/raw/
 data/training/yolov26_lrdd_no_bird/
+
+scripts/.ipynb_checkpoints/
+.ipynb_checkpoints/

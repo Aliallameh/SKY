@@ -24,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--freeze", type=int, default=None, help="Override number of layers to freeze")
     p.add_argument("--cos-lr", choices=["true", "false"], default=None, help="Override cosine LR schedule")
     p.add_argument("--run-name", default=None, help="Override Ultralytics run name")
+    p.add_argument("--resume", default=None, help="Path to last.pt checkpoint to resume training")
     return p.parse_args()
 
 

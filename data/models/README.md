@@ -30,3 +30,11 @@ Current v2 final checkpoint:
 - epochs: 80
 - validation: `mAP50=0.979`, `mAP50-95=0.693`
 - drone class: `P=0.986`, `R=0.966`, `mAP50=0.990`, `mAP50-95=0.683`
+
+
+**Version 5 log:**
+
+Better bounding box detection when background is forest
+
+However, it gives false positives now (detecting objects that are not UAV)
+

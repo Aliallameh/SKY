@@ -22,8 +22,8 @@ camera:
 
 detector:
   backend: "yolo_ultralytics"
-  weights: "data/models/yolov26/best.pt"  # Update this path to your trained model
-  input_size: 640  # Or 384 if matching the dataset resize
+  weights: "data/models/yolov26_lrdd_v2_img1024_b64/best.pt"  # Update this path to your trained model
+  input_size: 1024  # Or 384 Or 640 if matching the dataset resize
   confidence_threshold: 0.25
   iou_threshold: 0.45
   keep_class_ids: [0]  # Assuming 1 class, drone

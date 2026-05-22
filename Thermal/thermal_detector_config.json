@@ -1,9 +1,8 @@
 {
   "input": "./ThermalVideos/Video1_Raw_top.mp4",
-  "output_dir": "detector_results/Video1_kernel15",
+  "output_dir": "detector_results/Video1_live",
 
   "show": true,
-  "show_debug": false,
   "display_scale": 0.75,
 
   "clahe_clip": 2.0,

@@ -4,26 +4,15 @@
 python -m pip install --upgrade pip
 python -m pip install opencv-python numpy
 
-python thermal_detector.py `
-  --input ./ThermalVideos/Video1_Raw_top.mp4 `
-  --output-dir detector_results `
-  --combine and `
-  --cfar-window 31 `
-  --cfar-k 3.0 `
-  --tophat-kernel 15 `
-  --clahe-clip 2.0 `
-  --clahe-tile 8 `
-  --blur 3 `
-  --min-area 3 `
-  --max-area 600 `
-  --min-aspect 0.25 `
-  --max-aspect 4.0 `
-  --min-intensity 80 `
-  --max-assoc-distance 60 `
-  --max-missed 10
+.\.venv\Scripts\Activate.ps1
+
+python thermal_detector.py --config thermal_detector_config.json
 
 
 '''
+
+import json
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -330,6 +319,9 @@ def run_detector(args):
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
 
+    if not writer.isOpened():
+        raise RuntimeError(f"Could not open output video writer: {output_video}")
+
     print(f"Input: {args.input}")
     print(f"Resolution: {width}x{height}, FPS={fps}")
     print(f"Output: {output_video}")
@@ -361,8 +353,6 @@ def run_detector(args):
             threshold_k=args.cfar_k
         )
 
-        # Combine top-hat and CFAR masks.
-        # AND is stricter, OR is more sensitive.
         if args.combine == "and":
             combined_mask = cv2.bitwise_and(mask_tophat, mask_cfar)
         else:
@@ -404,13 +394,29 @@ def run_detector(args):
                 track = None
 
         annotated = draw_results(frame, detections, track, frame_idx)
+
+        # Always record annotated output video
         writer.write(annotated)
 
+        # Optionally show live
         if args.show:
-            cv2.imshow("Thermal UAV Detection", annotated)
-            cv2.imshow("Combined Mask", combined_mask)
-            cv2.imshow("Tophat", tophat)
-            cv2.imshow("CFAR Score", score_vis)
+            display_frame = annotated
+
+            if args.display_scale != 1.0:
+                display_frame = cv2.resize(
+                    display_frame,
+                    None,
+                    fx=args.display_scale,
+                    fy=args.display_scale,
+                    interpolation=cv2.INTER_AREA
+                )
+
+            cv2.imshow("Thermal UAV Detection - Annotated", display_frame)
+
+            if args.show_debug:
+                cv2.imshow("Combined Mask", combined_mask)
+                cv2.imshow("Tophat", tophat)
+                cv2.imshow("CFAR Score", score_vis)
 
             key = cv2.waitKey(1) & 0xFF
             if key == 27 or key == ord("q"):
@@ -425,49 +431,56 @@ def run_detector(args):
     print(f"Done. Processed {frame_idx} frames.")
     print(f"Saved annotated video to: {output_video}")
 
-
-def parse_args():
+def load_config():
     parser = argparse.ArgumentParser(
-        description="Classical non-CNN thermal UAV detector using CLAHE, top-hat, CFAR/local contrast, contour filtering, and Kalman tracking."
+        description="Classical non-CNN thermal UAV detector using a JSON config file."
     )
 
-    parser.add_argument("--input", required=True, help="Input thermal MP4 video")
-    parser.add_argument("--output-dir", default="thermal_detector_output", help="Output folder")
-    parser.add_argument("--show", action="store_true", help="Show live debug windows")
+    parser.add_argument(
+        "--config",
+        default="thermal_config.json",
+        help="Path to JSON config file"
+    )
 
-    # Preprocessing
-    parser.add_argument("--clahe-clip", type=float, default=2.0)
-    parser.add_argument("--clahe-tile", type=int, default=8)
-    parser.add_argument("--blur", type=int, default=3, help="Gaussian blur kernel size. Use odd number: 1, 3, 5")
+    cli_args = parser.parse_args()
 
-    # Top-hat
-    parser.add_argument("--tophat-kernel", type=int, default=15)
+    with open(cli_args.config, "r", encoding="utf-8") as f:
+        config = json.load(f)
 
-    # CFAR/local contrast
-    parser.add_argument("--cfar-window", type=int, default=31)
-    parser.add_argument("--cfar-k", type=float, default=3.0)
+    required_keys = [
+        "input",
+        "output_dir",
+        "show",
+        "show_debug",
+        "display_scale",
+        "clahe_clip",
+        "clahe_tile",
+        "blur",
+        "tophat_kernel",
+        "cfar_window",
+        "cfar_k",
+        "combine",
+        "open_size",
+        "dilate_size",
+        "min_area",
+        "max_area",
+        "min_aspect",
+        "max_aspect",
+        "min_intensity",
+        "max_assoc_distance",
+        "max_missed"
+    ]
 
-    # Mask combination
-    parser.add_argument("--combine", choices=["and", "or"], default="and")
+    missing = [key for key in required_keys if key not in config]
+    if missing:
+        raise ValueError(f"Missing config keys: {missing}")
 
-    # Morphology
-    parser.add_argument("--open-size", type=int, default=3)
-    parser.add_argument("--dilate-size", type=int, default=3)
+    if config["combine"] not in ["and", "or"]:
+        raise ValueError("Config value 'combine' must be either 'and' or 'or'.")
 
-    # Contour filtering
-    parser.add_argument("--min-area", type=float, default=3)
-    parser.add_argument("--max-area", type=float, default=600)
-    parser.add_argument("--min-aspect", type=float, default=0.25)
-    parser.add_argument("--max-aspect", type=float, default=4.0)
-    parser.add_argument("--min-intensity", type=float, default=80)
-
-    # Tracking
-    parser.add_argument("--max-assoc-distance", type=float, default=60)
-    parser.add_argument("--max-missed", type=int, default=10)
-
-    return parser.parse_args()
+    return SimpleNamespace(**config)
 
 
 if __name__ == "__main__":
-    args = parse_args()
+    args = load_config()
     run_detector(args)

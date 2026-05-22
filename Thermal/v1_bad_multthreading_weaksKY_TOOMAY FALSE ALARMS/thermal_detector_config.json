@@ -1,0 +1,41 @@
+{
+  "input": "./ThermalVideos/Video1_Raw_top.mp4",
+  "output_dir": "detector_results/Video1_wiser_grouping",
+
+  "show": true,
+  "display_scale": 1.5,
+
+  "clahe_clip": 2.0,
+  "clahe_tile": 8,
+  "blur": 4,
+
+  "tophat_kernel": 16,
+
+  "cfar_window": 31,
+  "cfar_k": 2.5,
+
+  "combine": "and",
+
+  "open_size": 3,
+  "dilate_size": 3,
+
+  "min_area": 3,
+  "max_area": 250,
+  "min_aspect": 0.2,
+  "max_aspect": 5.0,
+  "min_intensity": 80,
+
+  "group_radius": 55,
+  "min_group_components": 1,
+  "max_group_components": 8,
+  "max_group_width": 180,
+  "max_group_height": 120,
+  "group_min_aspect": 0.7,
+  "group_max_aspect": 5.5,
+  "group_min_density": 0.005,
+  "single_component_min_score": 130,
+  "single_component_min_area": 5,
+
+  "max_assoc_distance": 70,
+  "max_missed": 8
+}

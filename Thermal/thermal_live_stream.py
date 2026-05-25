@@ -26,9 +26,8 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import cv2
-
-from Thermal_detector import detect_frame
-
+import numpy as np
+from Thermal_detector import detect_frame, get_last_debug_images
 
 @dataclass
 class DetectionResult:
@@ -118,6 +117,66 @@ def draw_boxes(frame, result, current_frame_idx):
 
     return output
 
+def make_four_view(original_frame, annotated_frame, debug_images):
+    """
+    Create a 2x2 visualization:
+
+        top-left:     original video
+        top-right:    blurred local background
+        bottom-left:  subtracted local-contrast image
+        bottom-right: annotated detection video
+
+    This is mainly for tuning detector parameters.
+    """
+
+    h, w = original_frame.shape[:2]
+
+    # Original
+    original = original_frame.copy()
+
+    # Blurred background
+    blurred = debug_images.get("blurred")
+
+    if blurred is None:
+        blurred_bgr = np.zeros_like(original)
+    else:
+        blurred_bgr = cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR)
+
+    # Subtracted/local contrast image
+    subtracted = debug_images.get("subtracted")
+
+    if subtracted is None:
+        subtracted_bgr = np.zeros_like(original)
+    else:
+        subtracted_bgr = cv2.cvtColor(subtracted, cv2.COLOR_GRAY2BGR)
+
+    # Annotated
+    annotated = annotated_frame.copy()
+
+    # Make sure all are same size
+    blurred_bgr = cv2.resize(blurred_bgr, (w, h))
+    subtracted_bgr = cv2.resize(subtracted_bgr, (w, h))
+    annotated = cv2.resize(annotated, (w, h))
+
+    # Labels
+    cv2.putText(original, "Original", (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    cv2.putText(blurred_bgr, "Blurred local background", (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    cv2.putText(subtracted_bgr, "Subtracted local contrast", (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    cv2.putText(annotated, "Annotated detection", (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    top = np.hstack([original, blurred_bgr])
+    bottom = np.hstack([subtracted_bgr, annotated])
+
+    four_view = np.vstack([top, bottom])
+
+    return four_view
 
 def run_live_stream(args):
     """
@@ -256,7 +315,16 @@ def run_live_stream(args):
             writer.write(annotated)
 
             if args.show:
-                display_frame = annotated
+                debug_images = get_last_debug_images()
+
+                if getattr(args, "debug_four_view", False):
+                    display_frame = make_four_view(
+                        original_frame=frame,
+                        annotated_frame=annotated,
+                        debug_images=debug_images,
+                    )
+                else:
+                    display_frame = annotated
 
                 if args.display_scale != 1.0:
                     display_frame = cv2.resize(
@@ -328,6 +396,7 @@ def load_config():
         "output_dir",
         "show",
         "display_scale",
+        "debug_four_view",
         "algorithm",
     ]
 

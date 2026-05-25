@@ -1,24 +1,33 @@
 {
-  "input": "./ThermalVideos/Video1_Raw_top.mp4",
-  "output_dir": "detector_results/simple_local_brightness",
-
+  "input": "ThermalVideos/Video1_Raw_top.mp4",
+  "output_dir": "outputs",
   "show": true,
-  "display_scale": 1.5,
+  "display_scale": 0.9,
+  "debug_four_view": true,
 
   "algorithm": {
-    "blur": 3,
-    "local_window": 31,
-    "brightness_delta": 25,
+    "pre_blur_kernel": 3,
 
-    "open_size": 1,
-    "dilate_size": 3,
+    "blur_sigma": 15.0,
+    "local_contrast_threshold": 20,
 
-    "min_area": 3,
-    "max_area": 800,
-    "min_aspect": 0.2,
-    "max_aspect": 6.0,
-    "min_intensity": 80,
+    "normalize_diff_for_detection": false,
 
-    "max_boxes": 50
+    "morph_kernel_size": 3,
+    "dilate_iterations": 1,
+
+    "min_area": 2,
+    "max_area": 3000,
+
+    "min_width": 2,
+    "min_height": 2,
+
+    "max_width": 250,
+    "max_height": 250,
+
+    "min_mean_diff": 5.0,
+    "min_max_diff": 15.0,
+
+    "merge_distance_px": 30
   }
 }

@@ -182,6 +182,24 @@ def _filter_candidate(x, y, w, h, area, gray, diff, config):
     if w > max_width or h > max_height:
         return False, 0.0
 
+        # ------------------------------------------------------------
+    # Aspect-ratio filter
+    # ------------------------------------------------------------
+    # Tree trunks are often tall and thin.
+    # Ground/road edges are often wide and short.
+    # A UAV candidate, especially when far away, should usually be
+    # more compact, so we reject very elongated boxes before scoring.
+    aspect_ratio = w / float(h)
+
+    min_aspect_ratio = _get_config_value(config, "min_aspect_ratio", 0.4)
+    max_aspect_ratio = _get_config_value(config, "max_aspect_ratio", 3.0)
+
+    if aspect_ratio < min_aspect_ratio:
+        return False, 0.0
+
+    if aspect_ratio > max_aspect_ratio:
+        return False, 0.0
+
     roi_diff = diff[y:y + h, x:x + w]
 
     if roi_diff.size == 0:
@@ -386,6 +404,11 @@ def detect_frame(frame, algorithm_config):
         cv2.THRESH_BINARY,
     )
 
+# Save mask immediately after thresholding.
+# This shows which pixels passed the local-contrast threshold
+# before morphology changes anything.
+    threshold_mask = mask.copy()
+
     # ---------------------------------------------------------------------
     # Step 5: Clean mask using morphology
     # ---------------------------------------------------------------------
@@ -491,6 +514,14 @@ def detect_frame(frame, algorithm_config):
     _LAST_DEBUG_IMAGES["original"] = gray.copy()
     _LAST_DEBUG_IMAGES["blurred"] = background.copy()
     _LAST_DEBUG_IMAGES["subtracted"] = _normalize_for_display(diff)
+
+    # View 4: mask immediately after thresholding
+    _LAST_DEBUG_IMAGES["threshold_mask"] = threshold_mask.copy()
+
+    # View 5: mask after morphology opening/dilation
+    _LAST_DEBUG_IMAGES["morphology_mask"] = mask.copy()
+
+    # Keep old key for compatibility with your live-stream code
     _LAST_DEBUG_IMAGES["mask"] = mask.copy()
 
     return boxes

@@ -117,66 +117,81 @@ def draw_boxes(frame, result, current_frame_idx):
 
     return output
 
-def make_four_view(original_frame, annotated_frame, debug_images):
+def make_debug_view(original_frame, annotated_frame, debug_images):
     """
-    Create a 2x2 visualization:
+    Create a 3x2 debug visualization:
 
-        top-left:     original video
-        top-right:    blurred local background
-        bottom-left:  subtracted local-contrast image
-        bottom-right: annotated detection video
+        row 1: original                  blurred background
+        row 2: subtracted/local contrast threshold mask
+        row 3: morphology mask           annotated detection
 
-    This is mainly for tuning detector parameters.
+    This helps identify where the UAV is lost:
+        - visible in subtracted but not threshold? threshold too high
+        - visible in threshold but not morphology? morphology erased it
+        - visible in morphology but no box? filters are too strict
     """
 
     h, w = original_frame.shape[:2]
 
-    # Original
     original = original_frame.copy()
+    annotated = annotated_frame.copy()
 
-    # Blurred background
     blurred = debug_images.get("blurred")
+    subtracted = debug_images.get("subtracted")
+    threshold_mask = debug_images.get("threshold_mask")
+    morphology_mask = debug_images.get("morphology_mask")
 
     if blurred is None:
         blurred_bgr = np.zeros_like(original)
     else:
         blurred_bgr = cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR)
 
-    # Subtracted/local contrast image
-    subtracted = debug_images.get("subtracted")
-
     if subtracted is None:
         subtracted_bgr = np.zeros_like(original)
     else:
         subtracted_bgr = cv2.cvtColor(subtracted, cv2.COLOR_GRAY2BGR)
 
-    # Annotated
-    annotated = annotated_frame.copy()
+    if threshold_mask is None:
+        threshold_bgr = np.zeros_like(original)
+    else:
+        threshold_bgr = cv2.cvtColor(threshold_mask, cv2.COLOR_GRAY2BGR)
 
-    # Make sure all are same size
+    if morphology_mask is None:
+        morphology_bgr = np.zeros_like(original)
+    else:
+        morphology_bgr = cv2.cvtColor(morphology_mask, cv2.COLOR_GRAY2BGR)
+
     blurred_bgr = cv2.resize(blurred_bgr, (w, h))
     subtracted_bgr = cv2.resize(subtracted_bgr, (w, h))
+    threshold_bgr = cv2.resize(threshold_bgr, (w, h))
+    morphology_bgr = cv2.resize(morphology_bgr, (w, h))
     annotated = cv2.resize(annotated, (w, h))
 
-    # Labels
-    cv2.putText(original, "Original", (20, 30),
+    cv2.putText(original, "1 Original", (20, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    cv2.putText(blurred_bgr, "Blurred local background", (20, 30),
+    cv2.putText(blurred_bgr, "2 Blurred background", (20, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    cv2.putText(subtracted_bgr, "Subtracted local contrast", (20, 30),
+    cv2.putText(subtracted_bgr, "3 Subtracted/local contrast", (20, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    cv2.putText(annotated, "Annotated detection", (20, 30),
+    cv2.putText(threshold_bgr, "4 Threshold mask", (20, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    top = np.hstack([original, blurred_bgr])
-    bottom = np.hstack([subtracted_bgr, annotated])
+    cv2.putText(morphology_bgr, "5 Morphology mask", (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    four_view = np.vstack([top, bottom])
+    cv2.putText(annotated, "6 Final annotated", (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    return four_view
+    row1 = np.hstack([original, blurred_bgr])
+    row2 = np.hstack([subtracted_bgr, threshold_bgr])
+    row3 = np.hstack([morphology_bgr, annotated])
+
+    debug_view = np.vstack([row1, row2, row3])
+
+    return debug_view
 
 def run_live_stream(args):
     """
@@ -432,15 +447,14 @@ def run_offline_save(args):
 
     output_video = os.path.join(
         args.output_dir,
-        f"{basename}_offline_four_view.mp4"
+        f"{basename}_offline_debug_view.mp4"
     )
 
     # If mp4v fails on your Windows/OpenCV setup, switch this to MJPG + .avi.
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 
-    # 2x2 video size
     output_width = width * 2
-    output_height = height * 2
+    output_height = height * 3
 
     writer = cv2.VideoWriter(
         output_video,
@@ -509,27 +523,27 @@ def run_offline_save(args):
             # ----------------------------------------------------------
             debug_images = get_last_debug_images()
 
-            four_view = make_four_view(
+            debug_view = make_debug_view(
                 original_frame=frame,
                 annotated_frame=annotated,
                 debug_images=debug_images,
             )
 
             # Make extra sure output size matches writer size
-            if four_view.shape[1] != output_width or four_view.shape[0] != output_height:
-                four_view = cv2.resize(
-                    four_view,
+            if debug_view.shape[1] != output_width or debug_view.shape[0] != output_height:
+                debug_view = cv2.resize(
+                    debug_view,
                     (output_width, output_height),
                     interpolation=cv2.INTER_AREA,
                 )
 
-            writer.write(four_view)
+            writer.write(debug_view)
 
             # ----------------------------------------------------------
             # Optional preview while rendering
             # ----------------------------------------------------------
             if args.show:
-                display_frame = four_view
+                display_frame = debug_view
 
                 if args.display_scale != 1.0:
                     display_frame = cv2.resize(

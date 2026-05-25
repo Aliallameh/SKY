@@ -9,7 +9,7 @@
   "clahe_tile": 8,
   "blur": 4,
 
-  "tophat_kernel": 16,
+  "tophat_kernel": 11,
 
   "cfar_window": 31,
   "cfar_k": 2.5,

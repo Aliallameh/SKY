@@ -1,30 +1,24 @@
 {
   "input": "./ThermalVideos/Video1_Raw_top.mp4",
-  "output_dir": "detector_results/Video1_live",
+  "output_dir": "detector_results/simple_local_brightness",
 
   "show": true,
-  "display_scale": 0.75,
+  "display_scale": 1.5,
 
-  "clahe_clip": 2.0,
-  "clahe_tile": 8,
-  "blur": 3,
+  "algorithm": {
+    "blur": 3,
+    "local_window": 31,
+    "brightness_delta": 25,
 
-  "tophat_kernel": 15,
+    "open_size": 1,
+    "dilate_size": 3,
 
-  "cfar_window": 31,
-  "cfar_k": 3.0,
+    "min_area": 3,
+    "max_area": 800,
+    "min_aspect": 0.2,
+    "max_aspect": 6.0,
+    "min_intensity": 80,
 
-  "combine": "and",
-
-  "open_size": 3,
-  "dilate_size": 3,
-
-  "min_area": 3,
-  "max_area": 600,
-  "min_aspect": 0.25,
-  "max_aspect": 4.0,
-  "min_intensity": 80,
-
-  "max_assoc_distance": 60,
-  "max_missed": 10
+    "max_boxes": 50
+  }
 }

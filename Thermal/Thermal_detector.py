@@ -194,7 +194,16 @@ def _filter_candidate(x, y, w, h, area, gray, diff, config):
         return False, 0.0
 
     # Simple score. This is not a probability.
+    # It measures how strongly the candidate stands out from its local background.
     score = 0.5 * mean_diff + 0.5 * max_diff
+
+    # Reject weak candidates.
+    # If UAV is usually above 80 and false boxes are mostly below 65,
+    # then min_score = 65 is a reasonable starting point.
+    min_score = _get_config_value(config, "min_score", 0.0)
+
+    if score < min_score:
+        return False, 0.0
 
     return True, score
 
@@ -444,6 +453,28 @@ def detect_frame(frame, algorithm_config):
     merged_boxes = _merge_nearby_boxes(raw_boxes, merge_distance_px)
 
     # ---------------------------------------------------------------------
+    # Optional: keep only the strongest candidate in this frame
+    # ---------------------------------------------------------------------
+    # This is useful when:
+    #   - you expect only one UAV
+    #   - false positives have lower scores
+    #   - you want a cleaner output video
+    #
+    # Warning:
+    #   If there is a very hot false object in the frame, it may win.
+    #   Later, temporal tracking can make this more robust.
+    keep_best_box_only = _get_config_value(
+        algorithm_config,
+        "keep_best_box_only",
+        False,
+    )
+
+    if keep_best_box_only and len(merged_boxes) > 0:
+        merged_boxes = [
+            max(merged_boxes, key=lambda box: box[4])
+        ]
+
+    # ---------------------------------------------------------------------
     # Step 9: Convert to Box objects
     # ---------------------------------------------------------------------
     boxes = []
@@ -456,6 +487,22 @@ def detect_frame(frame, algorithm_config):
                 score=float(score),
             )
         )
+
+    # ---------------------------------------------------------------------
+    # Final safety step: guarantee at most one output box
+    # ---------------------------------------------------------------------
+    # Even if something earlier accidentally leaves multiple boxes,
+    # this ensures detect_frame() returns only the highest-score box.
+    keep_best_box_only = _get_config_value(
+        algorithm_config,
+        "keep_best_box_only",
+        False,
+    )
+
+    if keep_best_box_only and len(boxes) > 1:
+        boxes = [
+            max(boxes, key=lambda box: box.score)
+        ]
 
     # ---------------------------------------------------------------------
     # Store debug images for live display

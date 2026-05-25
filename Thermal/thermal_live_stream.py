@@ -364,6 +364,244 @@ def run_live_stream(args):
     print(f"Done. Played {frame_idx} frames.")
     print(f"Saved output video to: {output_video}")
 
+def run_offline_save(args):
+    """
+    Offline quick-processing mode.
+
+    This mode quickly processes the input video and saves four synchronized videos:
+
+        1. original video
+        2. blurred local-background video
+        3. subtracted local-contrast video
+        4. annotated detection video
+
+    Difference from live mode:
+        - No real-time playback timing.
+        - No detector thread.
+        - Every frame is processed directly.
+        - Videos are saved as fast as the computer can process them.
+    """
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    cap = cv2.VideoCapture(args.input)
+
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open input video: {args.input}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    if fps <= 0:
+        fps = 30.0
+
+    basename = os.path.splitext(os.path.basename(args.input))[0]
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+
+    # ------------------------------------------------------------------
+    # Create four output video paths
+    # ------------------------------------------------------------------
+    original_video = os.path.join(args.output_dir, f"{basename}_01_original.mp4")
+    blurred_video = os.path.join(args.output_dir, f"{basename}_02_blurred_background.mp4")
+    subtracted_video = os.path.join(args.output_dir, f"{basename}_03_subtracted_local_contrast.mp4")
+    annotated_video = os.path.join(args.output_dir, f"{basename}_04_annotated_detected.mp4")
+
+    # ------------------------------------------------------------------
+    # Create four video writers
+    # All videos are saved at the same resolution as the input.
+    # ------------------------------------------------------------------
+    writer_original = cv2.VideoWriter(original_video, fourcc, fps, (width, height))
+    writer_blurred = cv2.VideoWriter(blurred_video, fourcc, fps, (width, height))
+    writer_subtracted = cv2.VideoWriter(subtracted_video, fourcc, fps, (width, height))
+    writer_annotated = cv2.VideoWriter(annotated_video, fourcc, fps, (width, height))
+
+    writers = [
+        writer_original,
+        writer_blurred,
+        writer_subtracted,
+        writer_annotated,
+    ]
+
+    if not all(writer.isOpened() for writer in writers):
+        raise RuntimeError("Could not open one or more output video writers.")
+
+    print(f"Input: {args.input}")
+    print(f"Resolution: {width}x{height}, FPS={fps}")
+    print(f"Total frames: {total_frames}")
+    print("Mode: offline quick save")
+    print("Saving four output videos:")
+    print(f"  1. {original_video}")
+    print(f"  2. {blurred_video}")
+    print(f"  3. {subtracted_video}")
+    print(f"  4. {annotated_video}")
+
+    frame_idx = 0
+    start_all = time.perf_counter()
+
+    try:
+        while True:
+            ret, frame = cap.read()
+
+            if not ret:
+                break
+
+            start_time = time.perf_counter()
+
+            # ----------------------------------------------------------
+            # Run detector on current frame
+            # ----------------------------------------------------------
+            boxes = detect_frame(
+                frame,
+                args.algorithm,
+            )
+
+            processing_ms = (time.perf_counter() - start_time) * 1000.0
+
+            result = DetectionResult(
+                boxes=boxes,
+                source_frame_idx=frame_idx,
+                processing_ms=processing_ms,
+            )
+
+            # ----------------------------------------------------------
+            # Create annotated frame
+            # ----------------------------------------------------------
+            annotated = draw_boxes(frame, result, frame_idx)
+
+            # ----------------------------------------------------------
+            # Get debug images from detector
+            # These are produced inside detect_frame()
+            # ----------------------------------------------------------
+            debug_images = get_last_debug_images()
+
+            blurred = debug_images.get("blurred")
+            subtracted = debug_images.get("subtracted")
+
+            # Fallbacks in case debug images are not available
+            if blurred is None:
+                blurred_bgr = np.zeros_like(frame)
+            else:
+                blurred_bgr = cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR)
+
+            if subtracted is None:
+                subtracted_bgr = np.zeros_like(frame)
+            else:
+                subtracted_bgr = cv2.cvtColor(subtracted, cv2.COLOR_GRAY2BGR)
+
+            # Make sure debug videos match original size
+            blurred_bgr = cv2.resize(blurred_bgr, (width, height))
+            subtracted_bgr = cv2.resize(subtracted_bgr, (width, height))
+
+            # ----------------------------------------------------------
+            # Optional labels on saved videos
+            # ----------------------------------------------------------
+            if getattr(args, "label_saved_videos", True):
+                cv2.putText(
+                    frame,
+                    "Original",
+                    (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (255, 255, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+
+                cv2.putText(
+                    blurred_bgr,
+                    "Blurred local background",
+                    (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (255, 255, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+
+                cv2.putText(
+                    subtracted_bgr,
+                    "Subtracted local contrast",
+                    (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (255, 255, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+
+            # ----------------------------------------------------------
+            # Save all four streams
+            # ----------------------------------------------------------
+            writer_original.write(frame)
+            writer_blurred.write(blurred_bgr)
+            writer_subtracted.write(subtracted_bgr)
+            writer_annotated.write(annotated)
+
+            # ----------------------------------------------------------
+            # Optional live preview during offline processing
+            # ----------------------------------------------------------
+            if args.show:
+                if getattr(args, "debug_four_view", False):
+                    display_frame = make_four_view(
+                        original_frame=frame,
+                        annotated_frame=annotated,
+                        debug_images=debug_images,
+                    )
+                else:
+                    display_frame = annotated
+
+                if args.display_scale != 1.0:
+                    display_frame = cv2.resize(
+                        display_frame,
+                        None,
+                        fx=args.display_scale,
+                        fy=args.display_scale,
+                        interpolation=cv2.INTER_AREA,
+                    )
+
+                cv2.imshow("Thermal Offline Processing", display_frame)
+
+                key = cv2.waitKey(1) & 0xFF
+
+                if key == 27 or key == ord("q"):
+                    break
+
+            if frame_idx % 50 == 0:
+                if total_frames > 0:
+                    progress = 100.0 * frame_idx / total_frames
+                    print(
+                        f"Processed frame {frame_idx}/{total_frames} "
+                        f"({progress:.1f}%) | "
+                        f"Detector: {processing_ms:.1f} ms"
+                    )
+                else:
+                    print(
+                        f"Processed frame {frame_idx} | "
+                        f"Detector: {processing_ms:.1f} ms"
+                    )
+
+            frame_idx += 1
+
+    finally:
+        cap.release()
+
+        for writer in writers:
+            writer.release()
+
+        cv2.destroyAllWindows()
+
+    elapsed = time.perf_counter() - start_all
+    effective_fps = frame_idx / elapsed if elapsed > 0 else 0.0
+
+    print(f"Done. Processed {frame_idx} frames.")
+    print(f"Elapsed time: {elapsed:.2f} s")
+    print(f"Effective processing speed: {effective_fps:.2f} FPS")
+    print("Saved output videos:")
+    print(f"  1. {original_video}")
+    print(f"  2. {blurred_video}")
+    print(f"  3. {subtracted_video}")
+    print(f"  4. {annotated_video}")
 
 def load_config():
     """
@@ -392,11 +630,13 @@ def load_config():
         config = json.load(f)
 
     required_keys = [
+        "mode",
         "input",
         "output_dir",
         "show",
         "display_scale",
         "debug_four_view",
+        "save_four_view",
         "algorithm",
     ]
 
@@ -410,4 +650,16 @@ def load_config():
 
 if __name__ == "__main__":
     args = load_config()
-    run_live_stream(args)
+
+    mode = args.mode.lower().strip()
+
+    if mode == "live":
+        run_live_stream(args)
+
+    elif mode == "offline":
+        run_offline_save(args)
+
+    else:
+        raise ValueError(
+            f"Unknown mode: {args.mode}. Use either 'live' or 'offline'."
+        )

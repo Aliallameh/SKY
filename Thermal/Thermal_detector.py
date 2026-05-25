@@ -488,25 +488,6 @@ def detect_frame(frame, algorithm_config):
             )
         )
 
-    # ---------------------------------------------------------------------
-    # Final safety step: guarantee at most one output box
-    # ---------------------------------------------------------------------
-    # Even if something earlier accidentally leaves multiple boxes,
-    # this ensures detect_frame() returns only the highest-score box.
-    keep_best_box_only = _get_config_value(
-        algorithm_config,
-        "keep_best_box_only",
-        False,
-    )
-
-    if keep_best_box_only and len(boxes) > 1:
-        boxes = [
-            max(boxes, key=lambda box: box.score)
-        ]
-
-    # ---------------------------------------------------------------------
-    # Store debug images for live display
-    # ---------------------------------------------------------------------
     _LAST_DEBUG_IMAGES["original"] = gray.copy()
     _LAST_DEBUG_IMAGES["blurred"] = background.copy()
     _LAST_DEBUG_IMAGES["subtracted"] = _normalize_for_display(diff)

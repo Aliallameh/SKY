@@ -10,6 +10,9 @@
   "debug_four_view": true,
   "save_four_view": false,
 
+  "start_time_sec": 0.0,
+  "end_time_sec": null,
+
   "algorithm": {
     "pre_blur_kernel": 3,
 

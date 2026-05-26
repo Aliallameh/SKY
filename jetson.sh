@@ -155,6 +155,12 @@ install_requirements() {
     info "Installing protobuf>=3.20 (system version too old for onnx)..."
     piprun install "protobuf>=3.20"
 
+    # onnx + onnxslim: required for TRT engine export (PyTorch → ONNX → TRT).
+    # Install explicitly BEFORE ultralytics so ultralytics does not attempt its
+    # broken auto-update which also tries onnxruntime-gpu (no aarch64 PyPI wheel).
+    info "Installing onnx + onnxslim (needed for TRT engine export)..."
+    piprun install "onnx>=1.12.0,<2.0.0" "onnxslim>=0.1.71"
+
     # Explicit uninstall of any stale pip CUDA libs that may have crept in from
     # a failed install (nvidia-cublas-cu12 etc. shadow JetPack libs and break
     # cuBLAS). Only nvidia-cudss-cu12 is allowed.

@@ -30,6 +30,12 @@ opencv-python>=4.7,<5
 # Ultralytics should see that Jetson PyTorch is already installed.
 ultralytics>=8.4,<8.5
 
+# ONNX is required as an intermediate format for TensorRT engine export
+# (PyTorch → ONNX → TRT).  onnxruntime-gpu is NOT installed — on Jetson
+# TensorRT is the runtime, and onnxruntime-gpu has no aarch64 PyPI wheel.
+onnx>=1.12.0,<2.0.0
+onnxslim>=0.1.71
+
 # Development and regression checks on the Jetson venv.
 pytest>=7.4,<9
 

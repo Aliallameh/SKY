@@ -300,6 +300,59 @@ def _merge_nearby_boxes(boxes, merge_distance_px):
 # Main detection function
 # -------------------------------------------------------------------------
 
+def _draw_debug_boxes_on_gray(gray, boxes, title, color=(0, 255, 255)):
+    """
+    Draw debug boxes on top of the grayscale thermal frame.
+
+    boxes format:
+        (x, y, w, h, value)
+
+    value can be:
+        - contour area
+        - candidate score
+    """
+    debug = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+    cv2.putText(
+        debug,
+        title,
+        (20, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+    for item in boxes:
+        x, y, w, h, value = item
+
+        x = int(x)
+        y = int(y)
+        w = int(w)
+        h = int(h)
+
+        cv2.rectangle(
+            debug,
+            (x, y),
+            (x + w, y + h),
+            color,
+            1,
+        )
+
+        cv2.putText(
+            debug,
+            f"{value:.1f}",
+            (x, max(15, y - 5)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.4,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+
+    return debug
+
 def detect_frame(frame, algorithm_config):
     """
     Detect UAV candidates in one thermal frame.
@@ -444,10 +497,18 @@ def detect_frame(frame, algorithm_config):
     # Step 7: Filter contour candidates
     # ---------------------------------------------------------------------
     raw_boxes = []
+    raw_contour_boxes = []
 
     for contour in contours:
         area = cv2.contourArea(contour)
         x, y, w, h = cv2.boundingRect(contour)
+
+        # --------------------------------------------------------------
+        # Debug view 6:
+        # Store every contour box BEFORE filtering.
+        # This shows every white blob found from the morphology mask.
+        # --------------------------------------------------------------
+        raw_contour_boxes.append((x, y, w, h, area))
 
         accepted, score = _filter_candidate(
             x=x,
@@ -460,6 +521,11 @@ def detect_frame(frame, algorithm_config):
             config=algorithm_config,
         )
 
+        # --------------------------------------------------------------
+        # Debug view 7:
+        # Store only candidates that survived filtering.
+        # These are the boxes before merging and best-box selection.
+        # --------------------------------------------------------------
         if accepted:
             raw_boxes.append((x, y, w, h, score))
 
@@ -521,7 +587,23 @@ def detect_frame(frame, algorithm_config):
     # View 5: mask after morphology opening/dilation
     _LAST_DEBUG_IMAGES["morphology_mask"] = mask.copy()
 
-    # Keep old key for compatibility with your live-stream code
+    # View 6: raw contour boxes before filtering
+    _LAST_DEBUG_IMAGES["raw_contours"] = _draw_debug_boxes_on_gray(
+        gray,
+        raw_contour_boxes,
+        "6 Raw contour boxes",
+        color=(0, 255, 255),
+    )
+
+    # View 7: filtered boxes before merging / best-box selection
+    _LAST_DEBUG_IMAGES["filtered_candidates"] = _draw_debug_boxes_on_gray(
+        gray,
+        raw_boxes,
+        "7 Filtered candidates",
+        color=(0, 255, 0),
+    )
+
+    # Keep old key for compatibility
     _LAST_DEBUG_IMAGES["mask"] = mask.copy()
 
     return boxes

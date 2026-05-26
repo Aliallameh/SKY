@@ -119,16 +119,12 @@ def draw_boxes(frame, result, current_frame_idx):
 
 def make_debug_view(original_frame, annotated_frame, debug_images):
     """
-    Create a 3x2 debug visualization:
+    Create a 4x2 debug visualization:
 
         row 1: original                  blurred background
         row 2: subtracted/local contrast threshold mask
-        row 3: morphology mask           annotated detection
-
-    This helps identify where the UAV is lost:
-        - visible in subtracted but not threshold? threshold too high
-        - visible in threshold but not morphology? morphology erased it
-        - visible in morphology but no box? filters are too strict
+        row 3: morphology mask           raw contour boxes
+        row 4: filtered candidates       final annotated
     """
 
     h, w = original_frame.shape[:2]
@@ -140,31 +136,31 @@ def make_debug_view(original_frame, annotated_frame, debug_images):
     subtracted = debug_images.get("subtracted")
     threshold_mask = debug_images.get("threshold_mask")
     morphology_mask = debug_images.get("morphology_mask")
+    raw_contours = debug_images.get("raw_contours")
+    filtered_candidates = debug_images.get("filtered_candidates")
 
-    if blurred is None:
-        blurred_bgr = np.zeros_like(original)
-    else:
-        blurred_bgr = cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR)
+    def to_bgr_or_blank(img):
+        if img is None:
+            return np.zeros_like(original)
 
-    if subtracted is None:
-        subtracted_bgr = np.zeros_like(original)
-    else:
-        subtracted_bgr = cv2.cvtColor(subtracted, cv2.COLOR_GRAY2BGR)
+        if len(img.shape) == 2:
+            return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
-    if threshold_mask is None:
-        threshold_bgr = np.zeros_like(original)
-    else:
-        threshold_bgr = cv2.cvtColor(threshold_mask, cv2.COLOR_GRAY2BGR)
+        return img.copy()
 
-    if morphology_mask is None:
-        morphology_bgr = np.zeros_like(original)
-    else:
-        morphology_bgr = cv2.cvtColor(morphology_mask, cv2.COLOR_GRAY2BGR)
+    blurred_bgr = to_bgr_or_blank(blurred)
+    subtracted_bgr = to_bgr_or_blank(subtracted)
+    threshold_bgr = to_bgr_or_blank(threshold_mask)
+    morphology_bgr = to_bgr_or_blank(morphology_mask)
+    raw_contours_bgr = to_bgr_or_blank(raw_contours)
+    filtered_candidates_bgr = to_bgr_or_blank(filtered_candidates)
 
     blurred_bgr = cv2.resize(blurred_bgr, (w, h))
     subtracted_bgr = cv2.resize(subtracted_bgr, (w, h))
     threshold_bgr = cv2.resize(threshold_bgr, (w, h))
     morphology_bgr = cv2.resize(morphology_bgr, (w, h))
+    raw_contours_bgr = cv2.resize(raw_contours_bgr, (w, h))
+    filtered_candidates_bgr = cv2.resize(filtered_candidates_bgr, (w, h))
     annotated = cv2.resize(annotated, (w, h))
 
     cv2.putText(original, "1 Original", (20, 30),
@@ -182,14 +178,31 @@ def make_debug_view(original_frame, annotated_frame, debug_images):
     cv2.putText(morphology_bgr, "5 Morphology mask", (20, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    cv2.putText(annotated, "6 Final annotated", (20, 30),
+    cv2.putText(raw_contours_bgr, "6 Raw contour boxes", (20, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    row1 = np.hstack([original, blurred_bgr])
-    row2 = np.hstack([subtracted_bgr, threshold_bgr])
-    row3 = np.hstack([morphology_bgr, annotated])
+    cv2.putText(filtered_candidates_bgr, "7 Filtered candidates", (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-    debug_view = np.vstack([row1, row2, row3])
+    cv2.putText(annotated, "8 Final annotated", (20, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    # 2 rows x 4 columns layout
+    row1 = np.hstack([
+        original,
+        blurred_bgr,
+        subtracted_bgr,
+        threshold_bgr,
+    ])
+
+    row2 = np.hstack([
+        morphology_bgr,
+        raw_contours_bgr,
+        filtered_candidates_bgr,
+        annotated,
+    ])
+
+    debug_view = np.vstack([row1, row2])
 
     return debug_view
 
@@ -333,7 +346,7 @@ def run_live_stream(args):
                 debug_images = get_last_debug_images()
 
                 if getattr(args, "debug_four_view", False):
-                    display_frame = make_four_view(
+                    display_frame = make_debug_view(
                         original_frame=frame,
                         annotated_frame=annotated,
                         debug_images=debug_images,
@@ -377,7 +390,8 @@ def run_live_stream(args):
         cv2.destroyAllWindows()
 
     print(f"Done. Played {frame_idx} frames.")
-    print(f"Saved output video to: {output_video}")
+    print(f"  Debug view: {output_video}")
+
 
 def run_offline_save(args):
     """
@@ -445,26 +459,43 @@ def run_offline_save(args):
     # ------------------------------------------------------------------
     basename = os.path.splitext(os.path.basename(args.input))[0]
 
-    output_video = os.path.join(
+    debug_output_video = os.path.join(
         args.output_dir,
         f"{basename}_offline_debug_view.mp4"
+    )
+
+    final_output_video = os.path.join(
+        args.output_dir,
+        f"{basename}_offline_final_annotated.mp4"
     )
 
     # If mp4v fails on your Windows/OpenCV setup, switch this to MJPG + .avi.
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 
-    output_width = width * 2
-    output_height = height * 3
+    # Debug video: 2 rows x 4 columns
+    output_width = width * 4
+    output_height = height * 2
 
-    writer = cv2.VideoWriter(
-        output_video,
+    debug_writer = cv2.VideoWriter(
+        debug_output_video,
         fourcc,
         fps,
         (output_width, output_height),
     )
 
-    if not writer.isOpened():
-        raise RuntimeError(f"Could not open output video writer: {output_video}")
+    # Final annotated video: original full resolution
+    final_writer = cv2.VideoWriter(
+        final_output_video,
+        fourcc,
+        fps,
+        (width, height),
+    )
+
+    if not debug_writer.isOpened():
+        raise RuntimeError(f"Could not open debug output video writer: {debug_output_video}")
+
+    if not final_writer.isOpened():
+        raise RuntimeError(f"Could not open final output video writer: {final_output_video}")
 
     print(f"Input: {args.input}")
     print(f"Resolution: {width}x{height}, FPS={fps}")
@@ -478,8 +509,10 @@ def run_offline_save(args):
         print("End frame: end of video")
 
     print("Mode: offline quick save")
-    print("Saving one combined 2x2 video:")
-    print(f"  {output_video}")
+    print("Saving debug video:")
+    print(f"  {debug_output_video}")
+    print("Saving full-scale final annotated video:")
+    print(f"  {final_output_video}")
 
     frame_idx = start_frame
     processed_count = 0
@@ -537,7 +570,10 @@ def run_offline_save(args):
                     interpolation=cv2.INTER_AREA,
                 )
 
-            writer.write(debug_view)
+            debug_writer.write(debug_view)
+
+            # Save view 8 separately at original/full resolution
+            final_writer.write(annotated)
 
             # ----------------------------------------------------------
             # Optional preview while rendering
@@ -580,16 +616,18 @@ def run_offline_save(args):
 
     finally:
         cap.release()
-        writer.release()
+        debug_writer.release()
+        final_writer.release()
         cv2.destroyAllWindows()
 
     elapsed = time.perf_counter() - start_all
     effective_fps = processed_count / elapsed if elapsed > 0 else 0.0
 
-    print(f"Done. Processed {processed_count} frames.")
-    print(f"Elapsed time: {elapsed:.2f} s")
-    print(f"Effective processing speed: {effective_fps:.2f} FPS")
-    print(f"Saved output video to: {output_video}")
+    print("Mode: offline quick save")
+    print("Saving debug video:")
+    print(f"  {debug_output_video}")
+    print("Saving full-scale final annotated video:")
+    print(f"  {final_output_video}")
 
 def load_config():
     """

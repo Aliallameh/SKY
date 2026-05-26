@@ -4,8 +4,8 @@
   "input": "C:/Users/erfan/Files/SKY/Thermal/ThermalVideos/Video1_Raw_top.mp4",
   "output_dir": "outputs",
 
-  "show": "live",
-  "display_scale": 0.5,
+  "show": true,
+  "display_scale": 0.7,
 
   "debug_four_view": true,
   "save_four_view": false,
@@ -17,14 +17,14 @@
     "pre_blur_kernel": 1,
 
     "blur_sigma": 12.0,
-    "local_contrast_threshold": 60,
+    "local_contrast_threshold": 65,
 
     "normalize_diff_for_detection": false,
 
     "morph_kernel_size": 1,
     "dilate_iterations": 0,
 
-    "min_area": 1,
+    "min_area": 0,
     "max_area": 3000,
 
     "min_width": 1,

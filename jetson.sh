@@ -93,9 +93,11 @@ setup_venv() {
         rm -rf "$VENV"
     fi
 
-    # python3.10-venv is not always present on a fresh Ubuntu/JetPack image
-    if ! dpkg -l python3.10-venv &>/dev/null 2>&1; then
-        warn "python3.10-venv not found — installing (requires sudo)..."
+    # python3.10-venv is not always present on a fresh Ubuntu/JetPack image.
+    # Test ensurepip directly — dpkg -l can show the package as "known" even
+    # when it is not properly installed, so we test the real capability.
+    if ! python3 -m ensurepip --version &>/dev/null 2>&1; then
+        warn "python3.10-venv / ensurepip not available — installing (requires sudo)..."
         sudo apt-get install -y python3.10-venv
         ok "python3.10-venv installed"
     fi

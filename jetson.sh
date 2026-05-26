@@ -138,7 +138,12 @@ install_cudss() {
         return 0
     fi
     info "Installing nvidia-cudss-cu12 (provides libcudss.so.0)..."
-    piprun install nvidia-cudss-cu12
+    # --no-deps is CRITICAL: nvidia-cudss-cu12 declares cuda-toolkit as a
+    # dependency which pulls nvidia-cublas-cu12, nvidia-cuda-nvrtc-cu12, etc.
+    # Those packages shadow JetPack's system CUDA libs and cause
+    # CUBLAS_STATUS_ALLOC_FAILED at runtime.  We only need the .so file itself;
+    # all other CUDA libs are already provided by the JetPack installation.
+    piprun install --no-deps nvidia-cudss-cu12
     ok "nvidia-cudss-cu12 installed"
 }
 

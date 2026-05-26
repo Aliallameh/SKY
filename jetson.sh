@@ -56,6 +56,17 @@ check_jetson() {
     else
         ok "System CUDA $CUDA_VER found"
     fi
+
+    # gstreamer1.0-plugins-bad provides h264parse / h265parse which are
+    # required for the nvv4l2decoder hardware RTSP decode path.
+    # Safe to install — standard Ubuntu package, no JetPack CUDA conflict.
+    if ! gst-inspect-1.0 h264parse &>/dev/null 2>&1; then
+        info "gstreamer1.0-plugins-bad not found — installing (requires sudo)..."
+        sudo apt-get install -y gstreamer1.0-plugins-bad
+        ok "gstreamer1.0-plugins-bad installed"
+    else
+        ok "gstreamer1.0-plugins-bad present (h264parse / h265parse available)"
+    fi
 }
 
 # =============================================================================

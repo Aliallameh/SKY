@@ -75,9 +75,15 @@ class _GstNvdecCapture:
             Gst.init(None)
         self._Gst = Gst
 
+        # SIYI A8 Mini streams H.265/HEVC despite the URL ending in .264.
+        # The SDP explicitly negotiates encoding-name=H265 over RTP.
+        # rtph265depay + nvv4l2decoder handles HEVC natively in hardware.
+        # h265parse is NOT needed (not installed) — nvv4l2decoder accepts
+        # the raw HEVC bitstream from rtph265depay directly.
         pipeline_str = (
             f"rtspsrc location={url} protocols={transport} latency=0 ! "
-            "rtph264depay ! h264parse ! nvv4l2decoder ! "
+            "rtph265depay ! "
+            "nvv4l2decoder ! "
             "nvvidconv ! video/x-raw,format=BGRx ! "
             "videoconvert ! video/x-raw,format=BGR ! "
             "appsink name=sink max-buffers=1 drop=true sync=false"

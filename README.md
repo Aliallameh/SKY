@@ -20,20 +20,21 @@ MAVLink commands, ESP32 commands, payload commands, or actuator commands.
 | Human-readable overlays | Ready |
 | Target-state JSONL output | Ready |
 | Guidance-hint JSONL output | Ready, advisory only |
-| Jetson USB camera ingest | Implemented on live-camera branch |
-| TensorRT export helper | Implemented on Jetson deployment branch |
+| Jetson SIYI A8 Mini RTSP ingest | Working — 1920×1080 @ 30 fps |
+| TensorRT export helper | Working — yolov26n imgsz=1024 FP32 on R36.5.0 |
+| SIYI gimbal follow (yaw+pitch) | Working — live UDP commands confirmed |
 | Real flight control | Not implemented |
 | Safety claim | Not allowed yet |
 
 The current deployable model is:
 
 ```text
-data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt
+data/models/yolov26_lrdd_v2_img1024/best.engine   (Jetson — built on R36.5.0/TRT 10.3.0)
+data/models/yolov26_lrdd_v2_img1024/best.pt       (training weights, Git LFS)
 ```
 
-Important caveat: v2 can geometrically detect the target but sometimes labels a
-real drone as `airplane`. That means semantic-safe lock can be blocked. Do not
-hide this. It is the main model-improvement target for V3/V4.
+YOLOv26n, single class `drone`, trained on LRDDv2 + Anti-UAV300 RGB (no birds).
+Inference at imgsz=1024 FP32; ~53×32 px drone bbox in model input at 1080p range.
 
 ## Branches
 
@@ -174,17 +175,26 @@ git checkout feature/jetson-live-camera-runtime
 git lfs pull
 ```
 
-Use JetPack-matched NVIDIA PyTorch. Do not blindly install the Windows
-CUDA 12.8 requirements file on Jetson.
-
-Recommended Jetson environment shape:
+Then run the single setup+launcher script — it handles everything from scratch:
 
 ```bash
-python3 -m venv .venv_jetson --system-site-packages
-source .venv_jetson/bin/activate
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install -r requirements-jetson.txt
+chmod +x jetson.sh
+./jetson.sh
 ```
+
+`jetson.sh` will:
+1. Detect and recreate a stale `.venv_jetson` if it was built on a different machine
+2. Create `.venv_jetson` with `--system-site-packages` (inherits JetPack CUDA/TRT/cv2)
+3. Install torch from Jetson AI Lab (`jp6/cu126`) — the only correct sm_87 source
+4. Install `nvidia-cudss-cu12` (libcudss.so.0, required by Jetson AI Lab torch)
+5. Purge any conflicting pip CUDA packages that shadow JetPack's cuBLAS
+6. Install all project requirements and the editable `skyscouter` package
+7. Verify the environment (sm_87, cuBLAS, torch/cv2/ultralytics/tensorrt)
+8. Check the TRT engine was built on this exact Jetson version
+9. Drop into an interactive menu for all pipeline operations
+
+Do not manually install nvidia-cublas-cu12 or other pip CUDA packages — they
+shadow JetPack's system CUDA and cause `CUBLAS_STATUS_ALLOC_FAILED`.
 
 Full Jetson instructions:
 
@@ -194,73 +204,80 @@ docs/JETSON_ORIN_NANO_SETUP.md
 
 ## Verified Jetson Camera
 
-Camera:
+Camera: **SIYI A8 Mini** gimbal — 1/2.8" Sony CMOS, 81° H-FOV, 4K capable.
 
 ```text
-4K ZOOM CAMERA
-/dev/video0
-OpenCV device index 0
+Fixed IP:  192.168.144.25
+RTSP URL:  rtsp://192.168.144.25:8554/main.264  (transport: tcp)
+Gimbal:    UDP port 37260  (yaw+pitch commands)
 ```
 
-Use this realtime mode first:
+Pipeline stream mode: **1920×1080 @ 30 fps** (not 60 — decoder load at 60 fps
+competes with the GPU budget the detector needs).
 
-```text
-backend: V4L2
-fourcc: MJPG
-width: 1280
-height: 720
-fps: 30
+Network setup: the Jetson Ethernet interface (`eno1`) must have a **different**
+IP in the same subnet, e.g. `192.168.144.10/24`.  Use `jetson.sh` option 9 or:
+
+```bash
+# Run these on the Jetson as yourself (nmcli handles sudo internally)
+sudo nmcli connection modify "Wired connection 1" ipv4.addresses "192.168.144.10/24"
+sudo nmcli connection modify "Wired connection 1" ipv4.gateway "192.168.144.1"
+sudo nmcli connection modify "Wired connection 1" ipv4.method manual
+sudo nmcli connection up "Wired connection 1"
+ping 192.168.144.25   # expect ~0.3 ms RTT
 ```
 
-Use `MJPG`, not `YUYV`. YUYV is too slow at useful resolutions on this camera.
-
-Verified direct OpenCV result:
-
-```text
-1280x720 MJPG 30 fps
-300 frames
-10.68 seconds
-about 28 fps observed
-```
+Confirmed camera MAC: `7c:75:1a:ea:c2:e7`.
 
 ## Run The Full Jetson Live Pipeline
 
-Before TensorRT export exists, run the full PyTorch live pipeline:
+The easiest way is the `jetson.sh` interactive menu:
 
 ```bash
-python3 scripts/run_jetson_live_pipeline.py --backend pytorch
+./jetson.sh
 ```
 
-After exporting the TensorRT engine, run:
+Menu options:
+
+| Option | Mode |
+|--------|------|
+| 1 | TRT pipeline — log only, no display (safest first run) |
+| 2 | TRT pipeline — MJPEG stream → `http://<jetson-ip>:8090` |
+| 3 | TRT pipeline — OpenCV window on connected display |
+| 4 | TRT pipeline — gimbal follow **disabled** (observe-only) |
+| 7 | 30-second smoke test (gimbal + display off, Ctrl+C to stop) |
+
+Or call directly with the venv Python:
 
 ```bash
-python3 scripts/run_jetson_live_pipeline.py --backend tensorrt
+# Log-only, no display
+.venv_jetson/bin/python3 scripts/run_pipeline.py \
+  --config configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml \
+  --output data/outputs/my_run \
+  --no-operator-view
+
+# MJPEG operator feed (open http://<jetson-ip>:8090 in browser)
+.venv_jetson/bin/python3 scripts/run_pipeline.py \
+  --config configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml \
+  --output data/outputs/my_run \
+  --operator-view-mode mjpeg
+
+# OpenCV window on display (use --operator-view-window-backend opencv,
+# NOT gstreamer — gstreamer videoparse element is not installed)
+.venv_jetson/bin/python3 scripts/run_pipeline.py \
+  --config configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml \
+  --output data/outputs/my_run \
+  --operator-view-window-backend opencv
 ```
 
-For a live annotated operator feed, add:
-
-```bash
-python3 scripts/run_jetson_live_pipeline.py --backend tensorrt \
-  --operator-view \
-  --operator-view-mode mjpeg \
-  --operator-view-host 0.0.0.0 \
-  --operator-view-port 8090
-```
-
-Then open `http://<jetson-ip>:8090/` from the operator laptop.
-
-For an HDMI video downlink such as the Insight 5G 1080p system, use fullscreen
-window output instead of relying on IP access:
-
-```bash
-python3 scripts/run_jetson_live_pipeline.py --backend tensorrt \
-  --operator-view \
-  --operator-view-mode window \
-  --operator-view-fullscreen \
-  --operator-view-window-backend gstreamer \
-  --operator-view-display-width 1920 \
-  --operator-view-display-height 1080
-```
+> **Note:** always set `LD_LIBRARY_PATH` to include the cudss lib dir before
+> any direct Python call, or the torch import will fail with
+> `libcudss.so.0: cannot open shared object file`. `jetson.sh` does this
+> automatically. If calling manually:
+>
+> ```bash
+> export LD_LIBRARY_PATH=".venv_jetson/lib/python3.10/site-packages/nvidia/cu12/lib:$LD_LIBRARY_PATH"
+> ```
 
 The live runtime writes:
 
@@ -293,11 +310,22 @@ python3 scripts/dev/test_live_camera_source.py \
 
 ## Export TensorRT On Jetson
 
-Build the `.engine` on the Jetson:
+Use `jetson.sh` option 5 (recommended — it checks git-LFS, prompts for
+imgsz/precision, and optionally updates the config automatically).
+
+Or build manually with the venv Python:
 
 ```bash
-python3 scripts/export_tensorrt.py \
-  --weights data/models/yolo11s_airborne_aod4_antiuav300_v2/best.pt \
+# FP32 (current baseline — confirmed working on R36.5.0/TRT 10.3.0)
+.venv_jetson/bin/python3 scripts/export_tensorrt.py \
+  --weights data/models/yolov26_lrdd_v2_img1024/best.pt \
+  --imgsz 1024 \
+  --batch 1 \
+  --device 0
+
+# FP16 (faster, ~2× throughput — rebuild if moving from FP32 baseline)
+.venv_jetson/bin/python3 scripts/export_tensorrt.py \
+  --weights data/models/yolov26_lrdd_v2_img1024/best.pt \
   --imgsz 1024 \
   --batch 1 \
   --device 0 \
@@ -307,26 +335,16 @@ python3 scripts/export_tensorrt.py \
 Expected local artifacts:
 
 ```text
-data/models/yolo11s_airborne_aod4_antiuav300_v2/best.engine
-data/models/yolo11s_airborne_aod4_antiuav300_v2/best.export_manifest.json
+data/models/yolov26_lrdd_v2_img1024/best.engine
+data/models/yolov26_lrdd_v2_img1024/best.export_manifest.json
 ```
 
-Do not commit those files.
+**TRT engines are device-locked.** An engine built on R36.4.x will run on
+R36.5.0 but produce wrong/zero detections silently. Always rebuild the engine
+after a JetPack upgrade. `jetson.sh` checks the manifest at startup and warns
+if the versions differ.
 
-Benchmark:
-
-```bash
-python3 scripts/benchmark_detector_backend.py \
-  --model data/models/yolo11s_airborne_aod4_antiuav300_v2/best.engine \
-  --source 0 \
-  --camera-width 1280 \
-  --camera-height 720 \
-  --camera-fps 30 \
-  --fourcc MJPG \
-  --imgsz 1024 \
-  --frames 300 \
-  --warmup 20
-```
+Do not commit `.engine` files — they are in `.gitignore`.
 
 ## Model Training Direction
 
@@ -414,8 +432,9 @@ Use empty box coordinates for negatives.
 | `skyscouter/perception/` | Detector backends |
 | `skyscouter/tracking/` | Tracker logic |
 | `skyscouter/output/` | Overlay video, raw video, JSONL, reports |
+| `jetson.sh` | **Jetson entry point** — setup + interactive launch menu |
 | `scripts/run_pipeline.py` | Main pipeline command |
-| `scripts/run_jetson_live_pipeline.py` | Full Jetson live runtime launcher |
+| `scripts/run_jetson_live_pipeline.py` | Full Jetson live runtime launcher (called by jetson.sh) |
 | `scripts/export_tensorrt.py` | Jetson TensorRT export helper |
 | `scripts/train_airborne_yolo.py` | YOLO training wrapper |
 | `docs/` | Deployment, training, and evaluation notes |
@@ -425,21 +444,23 @@ Use empty box coordinates for negatives.
 
 Immediate Jetson work:
 
-1. Pull `feature/jetson-live-camera-runtime` on the Jetson.
-2. Confirm `git lfs pull` downloads v2 weights.
-3. Run the full PyTorch live pipeline.
-4. Export TensorRT on the Jetson.
-5. Run the full TensorRT live pipeline.
-6. Review `raw_camera.mp4`, `annotated.mp4`, `target_states.jsonl`,
-   `guidance_hints.jsonl`, and `manifest.json`.
+1. Run `./jetson.sh` — first run will set up the full environment automatically.
+2. Use menu option 7 (smoke test) to confirm camera stream, detections, and lock.
+3. Review `data/outputs/smoke_*/diagnostics.csv` — check detection rate.
+   If < 60% on a visible drone, lower `detector.confidence_threshold` to 0.15.
+4. Use menu option 4 (gimbal disabled) for initial airborne observation.
+5. Enable gimbal follow: verify yaw/pitch sign via `scripts/dev/siyi_gimbal_bench.py`,
+   then run menu option 1 (full live with gimbal).
+6. Consider rebuilding the engine with `--half` (FP16) for better throughput —
+   use menu option 5.
 
 Next product work:
 
-1. Calibrate the real USB camera.
-2. Collect log-only real-air footage.
-3. Annotate 100 to 200 local Mavic-style frames before Stage 3.
-4. Expand to 300 to 1,000 local labelled frames before sandbox readiness.
-5. Train/evaluate V3/V4 against v2, especially drone-to-airplane confusion.
+1. Calibrate the SIYI A8 Mini intrinsics (current config: `is_calibrated: false`).
+2. Collect log-only real-air footage with a known drone target.
+3. Annotate 100–200 local frames and validate recall at operational ranges.
+4. Expand to 300–1,000 local labelled frames before sandbox readiness claim.
+5. Evaluate whether FP16 engine degrades recall vs FP32 at target range.
 6. Keep false-lock negatives at zero.
 
 ## Safety Rules

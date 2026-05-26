@@ -70,7 +70,10 @@ class _GstNvdecCapture:
     def __init__(self, url: str, transport: str, open_timeout_s: float) -> None:
         import gi  # type: ignore[import]
         gi.require_version("Gst", "1.0")
-        from gi.repository import Gst  # type: ignore[import]
+        gi.require_version("GstApp", "1.0")
+        from gi.repository import Gst, GstApp  # type: ignore[import]  # noqa: F401
+        # GstApp must be imported so PyGObject registers the GstAppSink subclass
+        # and exposes try_pull_sample() on the element returned by get_by_name().
         if not Gst.is_initialized():
             Gst.init(None)
         self._Gst = Gst

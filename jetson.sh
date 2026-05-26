@@ -285,71 +285,239 @@ configure_network() {
 }
 
 # =============================================================================
-# 5. ENGINE EXPORT
+# 5. MODEL SCANNER & SELECTOR
 # =============================================================================
-export_engine() {
-    hdr "Export TensorRT engine"
-    echo "Available model directories:"
-    ls -d "$REPO/data/models"/yolov26_lrdd_v2*/ 2>/dev/null | nl -ba || echo "  (none found)"
+# Globals set by select_model():
+SELECTED_MODEL_DIR=""
+SELECTED_PT_FILE=""
+# Global set by make_temp_config():
+TEMP_CONFIG_PATH=""
+
+select_model() {
+    # Scans data/models/, prints a status table, and sets SELECTED_MODEL_DIR.
+    # PURPOSE: "pipeline" = need .engine; "export" = need real .pt
+    local PURPOSE="${1:-pipeline}"
+    local MODELS_DIR="$REPO/data/models"
+
+    [ -d "$MODELS_DIR" ] || fail "Models directory not found: $MODELS_DIR"
+
+    local THIS_L4T
+    THIS_L4T=$(grep -oP 'REVISION: \K[0-9.]+' /etc/nv_tegra_release 2>/dev/null || echo "?")
+
+    local -a ALL_DIRS=()
+    while IFS= read -r d; do ALL_DIRS+=("$d"); done \
+        < <(find "$MODELS_DIR" -mindepth 1 -maxdepth 1 -type d | sort)
+
+    [ ${#ALL_DIRS[@]} -gt 0 ] || fail "No model directories found under $MODELS_DIR"
+
+    hdr "Available models — $MODELS_DIR"
     echo ""
-    read -rp "Model directory path: " MODEL_DIR
-    MODEL_DIR="${MODEL_DIR%/}"
-    PT="$MODEL_DIR/best.pt"
-    if [ ! -f "$PT" ]; then
-        fail "best.pt not found at $PT"
-    fi
-    FILE_SIZE=$(stat -c%s "$PT")
-    if [ "$FILE_SIZE" -lt 1000 ]; then
-        fail "best.pt is only $FILE_SIZE bytes — it is a git-LFS pointer, not real weights."$'\n'"       Run: sudo apt-get install git-lfs -y && git lfs install && git lfs pull"
-    fi
-    read -rp "Input image size [1024]: " IMGSZ
-    IMGSZ="${IMGSZ:-1024}"
-    read -rp "Precision — FP16 (faster, recommended) or FP32? [fp16]: " PREC
-    PREC="${PREC:-fp16}"
+    printf "  ${W}%-3s  %-40s  %-6s  %-7s  %s${N}\n" \
+        "#" "Model directory" ".pt" ".engine" "Engine / L4T status"
+    echo "  ---  ----------------------------------------  ------  -------  --------------------------"
+
+    local -a SHOW_DIRS=()
+    local -a SHOW_PT=()
+    local n=1
+
+    for dir in "${ALL_DIRS[@]}"; do
+        local name; name=$(basename "$dir")
+
+        # ── .pt status ───────────────────────────────────────────────────────
+        local pt_label="  ✗"
+        local pt_path=""
+        for f in "$dir/best.pt" "$dir/last.pt"; do
+            if [ -f "$f" ]; then
+                local sz; sz=$(stat -c%s "$f" 2>/dev/null || echo 0)
+                if [ "$sz" -gt 10000 ]; then
+                    pt_label="  ✓"
+                    [ "$(basename "$f")" = "last.pt" ] && pt_label=" last"
+                    pt_path="$f"; break
+                else
+                    pt_label=" LFS"   # git-LFS pointer, not real weights
+                fi
+            fi
+        done
+
+        # ── .engine status ───────────────────────────────────────────────────
+        local eng_label="  ✗"
+        local eng_info="-"
+        if [ -f "$dir/best.engine" ]; then
+            eng_label="  ✓"
+            local manifest="$dir/best.export_manifest.json"
+            if [ -f "$manifest" ] && [ -x "$PY" ]; then
+                local built_on
+                built_on=$("$PY" -c "
+import json, re
+try:
+    m = json.load(open('$manifest'))
+    r = m['platform'].get('jetson_l4t_release', '')
+    v = re.search(r'REVISION: ([0-9.]+)', r)
+    print(v.group(1) if v else '?')
+except Exception: print('?')
+" 2>/dev/null || echo "?")
+                if [ "$built_on" = "$THIS_L4T" ]; then
+                    eng_info="R36.$built_on ✓"
+                else
+                    eng_info="R36.$built_on ≠ R36.$THIS_L4T ⚠ rebuild!"
+                fi
+            else
+                eng_info="exists (no manifest)"
+            fi
+        fi
+
+        # ── filter by purpose ────────────────────────────────────────────────
+        if [ "$PURPOSE" = "export" ] && [ -z "$pt_path" ]; then
+            continue   # needs a real .pt — skip dirs with only pointer/no .pt
+        fi
+        [ "$eng_label" = "  ✗" ] && [ "$PURPOSE" = "pipeline" ] && \
+            eng_info="${Y}no engine — export first${N}"
+
+        printf "  ${C}%-3s${N}  %-40s  %-6s  %-7s  " "$n)" "$name" "$pt_label" "$eng_label"
+        echo -e "$eng_info"
+
+        SHOW_DIRS+=("$dir")
+        SHOW_PT+=("$pt_path")
+        n=$((n+1))
+    done
     echo ""
-    HALF_FLAG=""
-    if [[ "${PREC,,}" == "fp16" || "${PREC,,}" == "half" ]]; then
-        HALF_FLAG="--half"
-        info "Exporting FP16 TRT engine (input ${IMGSZ}×${IMGSZ}) — takes ~6 minutes..."
-    else
-        info "Exporting FP32 TRT engine (input ${IMGSZ}×${IMGSZ}) — takes ~4 minutes..."
+
+    if [ ${#SHOW_DIRS[@]} -eq 0 ]; then
+        if [ "$PURPOSE" = "export" ]; then
+            fail "No models with real .pt weights found."$'\n'"       Run:  git lfs pull   to download LFS-tracked weights."
+        else
+            fail "No model directories found under $MODELS_DIR"
+        fi
     fi
+
+    local SEL
+    while true; do
+        read -rp "  Select model [1-$((n-1))]: " SEL
+        [[ "$SEL" =~ ^[0-9]+$ ]] && [ "$SEL" -ge 1 ] && [ "$SEL" -le $((n-1)) ] && break
+        warn "Enter a number between 1 and $((n-1))"
+    done
+
+    SELECTED_MODEL_DIR="${SHOW_DIRS[$((SEL-1))]}"
+    SELECTED_PT_FILE="${SHOW_PT[$((SEL-1))]}"
+    ok "Selected: $(basename "$SELECTED_MODEL_DIR")"
+}
+
+make_temp_config() {
+    # Builds a temp YAML (base deploy config with engine path + imgsz patched).
+    # Sets TEMP_CONFIG_PATH.  Caller must rm it after the pipeline exits.
+    local MODEL_DIR="$1"
+    local ENGINE="$MODEL_DIR/best.engine"
+    local BASE_CFG="$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml"
+
+    if [ ! -f "$ENGINE" ]; then
+        warn "No engine in $(basename "$MODEL_DIR") — need to export first."
+        read -rp "  Export TRT engine now? [Y/n]: " ANS
+        ANS="${ANS:-Y}"
+        if [[ "$ANS" =~ ^[Yy] ]]; then
+            _do_export_engine "$MODEL_DIR"
+        else
+            fail "Cannot run pipeline without a TRT engine."
+        fi
+    fi
+
+    # Read imgsz from export manifest if present
+    local IMGSZ=1024
+    local MANIFEST="$MODEL_DIR/best.export_manifest.json"
+    if [ -f "$MANIFEST" ] && [ -x "$PY" ]; then
+        local detected
+        detected=$("$PY" -c "
+import json
+try:
+    m = json.load(open('$MANIFEST'))
+    v = m.get('export_args', {}).get('imgsz') or m.get('imgsz')
+    print(int(v) if v else 1024)
+except Exception: print(1024)
+" 2>/dev/null || echo "1024")
+        [ -n "$detected" ] && IMGSZ="$detected"
+    fi
+
+    local RELPATH="${ENGINE#$REPO/}"
+    TEMP_CONFIG_PATH=$(mktemp /tmp/skyscouter_XXXXXX.yaml)
+
+    # Patch only the detector weights and input_size lines (anchored with \s*)
+    sed -E \
+        -e "s|^(\s*weights:).*|\1 \"$RELPATH\"|" \
+        -e "s|^(\s*input_size:).*|\1 $IMGSZ|" \
+        "$BASE_CFG" > "$TEMP_CONFIG_PATH"
+
+    info "Model  → $(basename "$MODEL_DIR")"
+    info "Engine → $RELPATH  (imgsz=$IMGSZ)"
+}
+
+# =============================================================================
+# 6. ENGINE EXPORT
+# =============================================================================
+_do_export_engine() {
+    # Internal: run the actual TRT export for a given model directory.
+    local MODEL_DIR="$1"
+    local PT="$SELECTED_PT_FILE"
+    # If called internally (not from export_engine menu), find best.pt ourselves
+    if [ -z "$PT" ] || [ ! -f "$PT" ]; then
+        PT=$(find "$MODEL_DIR" \( -name "best.pt" -o -name "last.pt" \) | sort | head -1)
+    fi
+    [ -f "$PT" ] || fail "No .pt file found in $MODEL_DIR"
+    local sz; sz=$(stat -c%s "$PT")
+    [ "$sz" -gt 10000 ] || \
+        fail "$(basename "$PT") is a git-LFS pointer ($sz bytes)."$'\n'"       Run:  git lfs pull"
+
+    read -rp "  Input image size [1024]: " IMGSZ; IMGSZ="${IMGSZ:-1024}"
+    read -rp "  Precision — FP16 (faster) or FP32? [fp16]: " PREC; PREC="${PREC:-fp16}"
+    local HALF_FLAG=""
+    [[ "${PREC,,}" =~ ^(fp16|half)$ ]] && HALF_FLAG="--half"
+    local PREC_LABEL="FP32"; [ -n "$HALF_FLAG" ] && PREC_LABEL="FP16"
+    info "Exporting $PREC_LABEL engine from $(basename "$PT") at imgsz=$IMGSZ (~4-6 min)..."
     pyrun "$REPO/scripts/export_tensorrt.py" \
         --weights "$PT" \
         --imgsz "$IMGSZ" \
         $HALF_FLAG
-    ok "Engine exported to $MODEL_DIR/best.engine"
+    ok "Engine → $MODEL_DIR/best.engine"
+}
+
+export_engine() {
+    hdr "Export TensorRT engine"
+    select_model "export"
+    _do_export_engine "$SELECTED_MODEL_DIR"
     echo ""
-    read -rp "Set this engine as the active config? [Y/n]: " ANS
+    read -rp "  Set as default config engine? [Y/n]: " ANS
     ANS="${ANS:-Y}"
     if [[ "$ANS" =~ ^[Yy] ]]; then
-        RELPATH="${MODEL_DIR#$REPO/}/best.engine"
-        sed -i "s|weights:.*best.engine|weights: \"$RELPATH\"|" \
-            "$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml"
-        sed -i "s|input_size:.*|input_size: $IMGSZ|" \
-            "$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml"
-        ok "Config updated → $RELPATH @ imgsz=$IMGSZ"
+        local RELPATH="${SELECTED_MODEL_DIR#$REPO/}/best.engine"
+        local IMGSZ
+        IMGSZ=$(grep -oP '"imgsz":\s*\K[0-9]+' \
+            "$SELECTED_MODEL_DIR/best.export_manifest.json" 2>/dev/null || echo "1024")
+        local BASE_CFG="$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml"
+        sed -i -E "s|^(\s*weights:).*|\1 \"$RELPATH\"|"  "$BASE_CFG"
+        sed -i -E "s|^(\s*input_size:).*|\1 $IMGSZ|"     "$BASE_CFG"
+        ok "Default config updated → $RELPATH  (imgsz=$IMGSZ)"
     fi
 }
 
 # =============================================================================
-# 6. PIPELINE LAUNCHERS
+# 7. PIPELINE LAUNCHERS
 # =============================================================================
 default_output() {
-    # Usage: default_output <tag>   e.g.  default_output "live"
     echo "$REPO/data/outputs/${1}_$(date -u +%Y%m%dT%H%M%SZ)"
 }
 
 run_pipeline() {
     local EXTRA_ARGS=("$@")
+    select_model "pipeline"
+    make_temp_config "$SELECTED_MODEL_DIR"
+    local CFG="$TEMP_CONFIG_PATH"
     local OUTDIR
-    OUTDIR=$(default_output "jetson_live")
-    info "Output dir → $OUTDIR"
+    OUTDIR=$(default_output "live_$(basename "$SELECTED_MODEL_DIR")")
+    info "Output → $OUTDIR"
     cd "$REPO"
     pyrun scripts/run_pipeline.py \
-        --config configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml \
+        --config "$CFG" \
         --output "$OUTDIR" \
-        "${EXTRA_ARGS[@]}"
+        "${EXTRA_ARGS[@]}" || true
+    rm -f "$CFG"
 }
 
 run_preflight() {
@@ -362,15 +530,20 @@ run_preflight() {
 
 run_smoke() {
     hdr "Smoke test (≈30-second run — press Ctrl+C to stop)"
-    info "Running pipeline in log-only mode (gimbal + display disabled). Ctrl+C to stop."
+    info "Gimbal and display disabled for smoke. Ctrl+C to stop."
+    select_model "pipeline"
+    make_temp_config "$SELECTED_MODEL_DIR"
+    local CFG="$TEMP_CONFIG_PATH"
     local OUTDIR
-    OUTDIR=$(default_output "smoke")
+    OUTDIR=$(default_output "smoke_$(basename "$SELECTED_MODEL_DIR")")
+    info "Output → $OUTDIR"
     cd "$REPO"
     pyrun scripts/run_pipeline.py \
-        --config configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml \
+        --config "$CFG" \
         --output "$OUTDIR" \
         --no-operator-view \
-        --no-gimbal-follow
+        --no-gimbal-follow || true
+    rm -f "$CFG"
 }
 
 get_jetson_ip() {
@@ -384,15 +557,13 @@ get_jetson_ip() {
 show_menu() {
     while true; do
         JETSON_IP=$(get_jetson_ip)
-        ENGINE=$(grep -E "^\s*weights:" "$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml" \
-                 | head -1 | awk '{print $2}' | tr -d '"' | xargs basename 2>/dev/null)
-        IMGSZ=$(grep -E "^\s*input_size:" "$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml" \
-                | head -1 | awk '{print $2}')
+        MODEL_COUNT=$(find "$REPO/data/models" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+        ENGINE_COUNT=$(find "$REPO/data/models" -name "best.engine" 2>/dev/null | wc -l)
 
         echo -e "\n${C}╔══════════════════════════════════════════════════════╗"
         echo -e "║            SkyScouter — Jetson Launcher              ║"
         echo -e "╠══════════════════════════════════════════════════════╣"
-        printf  "║  Engine : %-43s║\n" "$ENGINE  (imgsz=$IMGSZ)"
+        printf  "║  Models : %-43s║\n" "$MODEL_COUNT dirs  ($ENGINE_COUNT with .engine)  — selected at runtime"
         printf  "║  Jetson : %-43s║\n" "${JETSON_IP:-not configured}  →  Camera: 192.168.144.25"
         echo -e "╠══════════════════════════════════════════════════════╣"
         echo -e "║  PIPELINE                                            ║"

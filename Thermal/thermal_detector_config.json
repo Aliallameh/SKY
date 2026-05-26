@@ -17,7 +17,7 @@
     "pre_blur_kernel": 1,
 
     "blur_sigma": 12.0,
-    "local_contrast_threshold": 65,
+    "local_contrast_threshold": 60,
 
     "normalize_diff_for_detection": false,
 
@@ -36,7 +36,7 @@
     "min_mean_diff": 5.0,
     "min_max_diff": 15.0,
 
-    "min_score": 75.0,
+    "min_score": 100.0,
 
     "merge_distance_px": 30,
 

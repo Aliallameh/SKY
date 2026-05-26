@@ -26,6 +26,13 @@ The live-stream script can use the debug images to show:
     - blurred local background
     - subtracted local contrast image
     - annotated detection result
+
+
+feel free to modify thermal_detector_config.json file.
+
+"mode" can be "offline" or "live"
+
+
 """
 
 from dataclasses import dataclass

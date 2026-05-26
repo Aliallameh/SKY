@@ -46,7 +46,7 @@ check_jetson() {
     if [ ! -f /etc/nv_tegra_release ]; then
         warn "Not a Jetson device — continuing anyway."
     else
-        L4T=$(grep "REVISION:" /etc/nv_tegra_release | awk '{print $2}' | tr -d ',')
+        L4T=$(grep "REVISION:" /etc/nv_tegra_release | grep -oP 'REVISION: \K[0-9.]+')
         ok "L4T R36.$L4T detected (JetPack 6.x)"
     fi
 
@@ -91,6 +91,13 @@ setup_venv() {
     if [ -d "$VENV" ]; then
         warn "Removing stale venv (was created on a different machine/path)..."
         rm -rf "$VENV"
+    fi
+
+    # python3.10-venv is not always present on a fresh Ubuntu/JetPack image
+    if ! dpkg -l python3.10-venv &>/dev/null 2>&1; then
+        warn "python3.10-venv not found — installing (requires sudo)..."
+        sudo apt-get install -y python3.10-venv
+        ok "python3.10-venv installed"
     fi
 
     info "Creating venv with --system-site-packages (inherits JetPack libs)..."
@@ -217,7 +224,7 @@ m = json.load(open('$MANIFEST'))
 print(m['platform'].get('jetson_l4t_release','?').split('REVISION:')[1].split(',')[0].strip()
       if 'REVISION:' in m['platform'].get('jetson_l4t_release','') else '?')
 " 2>/dev/null)
-            THIS_L4T=$(grep "REVISION:" /etc/nv_tegra_release | awk '{print $2}' | tr -d ',')
+            THIS_L4T=$(grep "REVISION:" /etc/nv_tegra_release | grep -oP 'REVISION: \K[0-9.]+')
             if [ "$BUILT_ON" = "$THIS_L4T" ]; then
                 ok "Engine $ENGINE_PATH — built on this Jetson (R36.$THIS_L4T) ✓"
             else

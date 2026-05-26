@@ -5,11 +5,163 @@ import os
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Iterator, Optional, Tuple
+from typing import Any, Iterator, Optional, Tuple
 
 import cv2
+import numpy as np
 
 from .frame_source import BaseFrameSource, Frame
+
+# ---------------------------------------------------------------------------
+# Optional GStreamer nvv4l2decoder hardware-decode path
+#
+# The pip opencv-python wheel has GStreamer: NO, so we cannot use
+# cv2.CAP_GSTREAMER.  Instead we drive GStreamer directly through
+# gi.repository.Gst (PyGObject), which JetPack ships as part of the
+# system GStreamer runtime.  The _GstNvdecCapture wrapper presents the
+# same minimal interface as cv2.VideoCapture so _reader_loop() is
+# unchanged.  We fall back to the FFmpeg path transparently if anything
+# in the GStreamer stack is missing.
+# ---------------------------------------------------------------------------
+
+_GST_NVDEC_AVAILABLE: Optional[bool] = None
+
+
+def _check_gst_nvdec() -> bool:
+    """Return True if gi.Gst + the nvvideo4linux2 plugin are present."""
+    global _GST_NVDEC_AVAILABLE
+    if _GST_NVDEC_AVAILABLE is not None:
+        return _GST_NVDEC_AVAILABLE
+    try:
+        import gi  # type: ignore[import]
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst  # type: ignore[import]
+        if not Gst.is_initialized():
+            Gst.init(None)
+        _GST_NVDEC_AVAILABLE = (
+            Gst.Registry.get().find_plugin("nvvideo4linux2") is not None
+        )
+    except Exception:
+        _GST_NVDEC_AVAILABLE = False
+    return _GST_NVDEC_AVAILABLE
+
+
+class _GstNvdecCapture:
+    """Hardware RTSP decoder using GStreamer nvv4l2decoder.
+
+    Pipeline::
+
+        rtspsrc → rtph264depay → h264parse → nvv4l2decoder
+                → nvvidconv → BGRx → videoconvert → BGR
+                → appsink (max-buffers=1, drop=true)
+
+    The nvv4l2decoder element runs on the Jetson hardware video decoder,
+    freeing the CPU cores that FFmpeg would otherwise use for software
+    H.264 decode.
+
+    Public interface matches cv2.VideoCapture (isOpened / read / release)
+    so that RtspStreamSource._reader_loop() works with both backends.
+    """
+
+    _PULL_TIMEOUT_NS = 500_000_000  # 500 ms — short enough that close()
+                                    # wakes within ~0.5 s; stream at 30 fps
+                                    # delivers a new frame every 33 ms.
+
+    def __init__(self, url: str, transport: str, open_timeout_s: float) -> None:
+        import gi  # type: ignore[import]
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst  # type: ignore[import]
+        if not Gst.is_initialized():
+            Gst.init(None)
+        self._Gst = Gst
+
+        pipeline_str = (
+            f"rtspsrc location={url} protocols={transport} latency=0 ! "
+            "rtph264depay ! h264parse ! nvv4l2decoder ! "
+            "nvvidconv ! video/x-raw,format=BGRx ! "
+            "videoconvert ! video/x-raw,format=BGR ! "
+            "appsink name=sink max-buffers=1 drop=true sync=false"
+        )
+        self._pipeline = Gst.parse_launch(pipeline_str)
+        self._sink = self._pipeline.get_by_name("sink")
+        self._opened = False
+        self._width = 0
+        self._height = 0
+
+        ret = self._pipeline.set_state(Gst.State.PLAYING)
+        if ret == Gst.StateChangeReturn.FAILURE:
+            self._pipeline.set_state(Gst.State.NULL)
+            raise RuntimeError(
+                "GStreamer pipeline failed to start (FAILURE on set_state)"
+            )
+
+        # ASYNC is normal for network sources — the pipeline will complete
+        # the transition independently; we will wait for frames via appsink.
+        change, _cur, _pending = self._pipeline.get_state(
+            int(open_timeout_s * Gst.SECOND)
+        )
+        if change == Gst.StateChangeReturn.FAILURE:
+            self._pipeline.set_state(Gst.State.NULL)
+            raise RuntimeError(
+                f"GStreamer pipeline state-change FAILURE (result={change})"
+            )
+        self._opened = True
+
+    # ------------------------------------------------------------------
+    # cv2.VideoCapture-compatible interface
+    # ------------------------------------------------------------------
+
+    def isOpened(self) -> bool:
+        return self._opened
+
+    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+        if not self._opened:
+            return False, None
+
+        Gst = self._Gst
+        sample = self._sink.try_pull_sample(self._PULL_TIMEOUT_NS)
+        if sample is None:
+            self._drain_bus()
+            return False, None
+
+        caps = sample.get_caps()
+        s = caps.get_structure(0)
+        w = int(s.get_value("width"))
+        h = int(s.get_value("height"))
+        if self._width == 0:
+            self._width = w
+            self._height = h
+
+        buf = sample.get_buffer()
+        ok, map_info = buf.map(Gst.MapFlags.READ)
+        if not ok:
+            return False, None
+        try:
+            # BGR: 3 bytes per pixel
+            frame = (
+                np.frombuffer(map_info.data, dtype=np.uint8)
+                .reshape(h, w, 3)
+                .copy()
+            )
+        finally:
+            buf.unmap(map_info)
+        return True, frame
+
+    def release(self) -> None:
+        self._opened = False
+        if self._pipeline is not None:
+            self._pipeline.set_state(self._Gst.State.NULL)
+            self._pipeline = None  # type: ignore[assignment]
+
+    # ------------------------------------------------------------------
+
+    def _drain_bus(self) -> None:
+        """Mark opened=False if the pipeline posted an error or EOS."""
+        Gst = self._Gst
+        bus = self._pipeline.get_bus()
+        msg = bus.pop_filtered(Gst.MessageType.ERROR | Gst.MessageType.EOS)
+        if msg is not None:
+            self._opened = False
 
 
 class RtspStreamSource(BaseFrameSource):
@@ -71,6 +223,7 @@ class RtspStreamSource(BaseFrameSource):
         self._width = self._expected_width or 0
         self._height = self._expected_height or 0
         self._last_reconnect_utc: Optional[str] = None
+        self._capture_backend: str = "unknown"
 
         self._reader = threading.Thread(
             target=self._reader_loop,
@@ -102,6 +255,7 @@ class RtspStreamSource(BaseFrameSource):
             "max_frames": self._max_frames,
             "raw_frames_read": self._raw_read_count,
             "last_reconnect_utc": self._last_reconnect_utc,
+            "capture_backend": self._capture_backend,
         }
 
     def __iter__(self) -> Iterator[Frame]:
@@ -218,7 +372,28 @@ class RtspStreamSource(BaseFrameSource):
 
             self._sleep_before_reconnect()
 
-    def _open_capture(self) -> Optional[cv2.VideoCapture]:
+    def _open_capture(self) -> Optional[Any]:
+        # ------------------------------------------------------------------
+        # Attempt 1: GStreamer nvv4l2decoder (hardware H.264 decode)
+        # ------------------------------------------------------------------
+        if _check_gst_nvdec():
+            try:
+                cap: Any = _GstNvdecCapture(
+                    self._url, self._transport, self._open_timeout_s
+                )
+                self._capture_backend = "gst_nvdec"
+                self._last_reconnect_utc = datetime.now(timezone.utc).isoformat(
+                    timespec="seconds"
+                )
+                return cap
+            except Exception as exc:
+                self._record_reader_error(
+                    f"GStreamer nvdec open failed ({exc}); falling back to FFmpeg"
+                )
+
+        # ------------------------------------------------------------------
+        # Attempt 2: OpenCV FFmpeg (software decode)
+        # ------------------------------------------------------------------
         previous_options = os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS")
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = self._ffmpeg_capture_options()
         try:
@@ -230,7 +405,9 @@ class RtspStreamSource(BaseFrameSource):
                 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = previous_options
 
         if not cap.isOpened():
-            self._record_reader_error(f"Could not open RTSP stream: {self._redacted_url()}")
+            self._record_reader_error(
+                f"Could not open RTSP stream: {self._redacted_url()}"
+            )
             cap.release()
             return None
 
@@ -242,7 +419,10 @@ class RtspStreamSource(BaseFrameSource):
         if self._fps is not None:
             cap.set(cv2.CAP_PROP_FPS, self._fps)
 
-        self._last_reconnect_utc = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self._capture_backend = "ffmpeg"
+        self._last_reconnect_utc = datetime.now(timezone.utc).isoformat(
+            timespec="seconds"
+        )
         return cap
 
     def _ffmpeg_capture_options(self) -> str:

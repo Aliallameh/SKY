@@ -651,10 +651,16 @@ case "${1:-}" in
         check_engine
         ;;
     *)
-        # Auto-setup if the venv is missing or stale, then show menu
         if ! venv_is_healthy; then
-            echo -e "${Y}Environment not ready — running setup first...${N}"
+            # Venv is missing, broken, or from a different machine — full setup
+            echo -e "${Y}Environment not ready — running full setup...${N}"
             do_setup
+        else
+            # Venv is healthy but requirements may have changed after git pull.
+            # Always sync so new packages added to requirements-jetson.txt are
+            # picked up automatically.  pip skips already-installed packages
+            # instantly, so this adds only a few seconds on a warm venv.
+            install_requirements
         fi
         show_menu
         ;;

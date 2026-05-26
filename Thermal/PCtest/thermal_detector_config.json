@@ -1,0 +1,56 @@
+{
+  "mode": "live",
+
+  "camera": {
+    "index": 1,
+    "width": 640,
+    "height": 1024,
+    "fps": 30
+  },
+
+  "preprocess": {
+    "enabled": true,
+    "split_mode": "horizontal",
+    "selected_view": "top",
+    "split_y": 512
+  },
+
+    "recording": {
+    "enabled": true,
+    "output_dir": "outputs",
+    "fps": 30.0
+  },
+
+  "algorithm": {
+    "pre_blur_kernel": 1,
+
+    "blur_sigma": 12.0,
+    "local_contrast_threshold": 40,
+
+    "normalize_diff_for_detection": false,
+
+    "morph_kernel_size": 1,
+    "dilate_iterations": 0,
+
+    "min_area": 1,
+    "max_area": 3000,
+
+    "min_width": 1,
+    "min_height": 1,
+
+    "max_width": 250,
+    "max_height": 250,
+
+    "min_aspect_ratio": 0.3,
+    "max_aspect_ratio": 3.5,
+
+    "min_mean_diff": 3.0,
+    "min_max_diff": 10.0,
+
+    "min_score": 40.0,
+
+    "merge_distance_px": 25,
+
+    "keep_best_box_only": true
+  }
+}

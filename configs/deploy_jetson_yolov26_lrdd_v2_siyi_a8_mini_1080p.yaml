@@ -65,21 +65,18 @@ camera:
 
 detector:
   backend: "yolo_ultralytics"
-  weights: "data/models/yolov26_lrdd_v2/best.engine"
-  # Engine rebuilt at imgsz=640 after the imgsz=384 first bench produced
-  # 13 detections / 888 frames (~1.5%). Root cause: 1920x1080 letterboxed
-  # to 384 collapses a typical 100x60 px drone bbox to ~20x12 px in model
-  # input -- below the stride-8 head's reliable range. At 640 the same
-  # drone becomes ~33x20 px in input. The v4 branch's own configs/
-  # yolov26_eval.yaml documents 640 as the runtime size.
-  input_size: 640
+  weights: "data/models/yolov26_lrdd_v2_img1024/best.engine"
+  # Engine built natively on this Jetson (R36.5.0, TRT 10.3.0) at imgsz=1024.
+  # 1920x1080 letterboxed to 1024 gives ~53x32 px drone bbox in model input,
+  # well above the stride-8 head's reliable detection range.
+  input_size: 1024
   confidence_threshold: 0.25
   iou_threshold: 0.45
   keep_class_ids: [0]
   fallback_keep_high_conf: false
   fallback_high_conf_threshold: 0.35
   device: "0"
-  model_version: "yolov26n_lrdd_v2_tensorrt_fp16_imgsz640_siyi_a8_mini_1080p_gimbal_follow"
+  model_version: "yolov26n_lrdd_v2_tensorrt_fp32_imgsz1024_siyi_a8_mini_1080p_gimbal_follow"
 
 tracker:
   backend: "single_target_kalman_lk"

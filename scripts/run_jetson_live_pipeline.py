@@ -7,6 +7,7 @@ ESP32 command relay, and no actuator authority.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -16,9 +17,29 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
 
 
+def _venv_python() -> str:
+    """Return the venv python so subprocesses inherit site-packages.
+
+    sys.executable resolves symlinks back to the system interpreter, which
+    bypasses the active venv's site-packages. We need to pass the symlink
+    path so Python finds pyvenv.cfg next to it and activates the venv.
+    """
+    # 1. Respect an explicit VIRTUAL_ENV env var (venv activated in shell)
+    venv = os.environ.get("VIRTUAL_ENV")
+    if venv:
+        candidate = Path(venv) / "bin" / "python3"
+        if candidate.exists():
+            return str(candidate)
+    # 2. Jetson convention: .venv_jetson at repo root
+    candidate = _ROOT / ".venv_jetson" / "bin" / "python3"
+    if candidate.exists():
+        return str(candidate)
+    return sys.executable
+
+
 CONFIGS = {
     "pytorch": "configs/jetson_live_camera_pytorch_full.yaml",
-    "tensorrt": "configs/deploy_jetson_yolo11s_stage2_multiclass_capped_engine_1080p.yaml",
+    "tensorrt": "configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml",
 }
 
 
@@ -27,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--backend", choices=sorted(CONFIGS), default="tensorrt")
     parser.add_argument("--config", default=None, help="Optional config override.")
     parser.add_argument("--output", default=None, help="Optional output directory.")
-    parser.add_argument("--python", default=sys.executable)
+    parser.add_argument("--python", default=_venv_python())
     parser.add_argument("--operator-view", action="store_true",
                         help="Enable live annotated operator view.")
     parser.add_argument("--no-operator-view", action="store_true",
@@ -98,10 +119,23 @@ def main() -> int:
         cmd.extend(["--operator-view-window-backend", args.operator_view_window_backend])
     if args.operator_view_display_fps is not None:
         cmd.extend(["--operator-view-display-fps", str(args.operator_view_display_fps)])
+    # Add the nvidia/cu12/lib dir from the venv so the dynamic linker can find
+    # libcudss.so.0 (required by Jetson AI Lab torch, not shipped by JetPack).
+    # Only this one directory is added; all other CUDA libs are left to the
+    # system JetPack paths to avoid cuBLAS/cuDNN version conflicts.
+    env = os.environ.copy()
+    cudss_lib = (
+        Path(args.python).parent.parent
+        / "lib" / "python3.10" / "site-packages" / "nvidia" / "cu12" / "lib"
+    )
+    if cudss_lib.is_dir():
+        existing = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = str(cudss_lib) + (":" + existing if existing else "")
+
     print("Launching full live pipeline:")
     print(" ".join(cmd))
     print("Press Ctrl+C to stop and finalize the manifest cleanly.")
-    result = subprocess.run(cmd, cwd=str(_ROOT), check=False)
+    result = subprocess.run(cmd, cwd=str(_ROOT), env=env, check=False)
     return int(result.returncode)
 
 

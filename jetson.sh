@@ -187,13 +187,6 @@ install_requirements() {
     info "Installing requirements-jetson.txt..."
     piprun install -r "$REPO/requirements-jetson.txt"
 
-    # requirements-jetson.txt specifies opencv-python-headless (no GUI).
-    # We need the GUI-capable build for the operator view window.
-    # Install it AFTER requirements so it replaces headless if pip installed it.
-    # Do NOT rely on system python3-opencv — it was compiled against NumPy 1.x
-    # and fails with NumPy 2.x in this venv.
-    info "Installing opencv-python (GUI-capable, replaces headless)..."
-    piprun install "opencv-python>=4.7,<5"
     ok "All requirements installed"
 }
 
@@ -218,7 +211,9 @@ print(f'  python       {sys.version.split()[0]}')
 
 check_engine() {
     hdr "TRT engine check"
-    CFG_ENGINE=$(grep "weights:" "$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml" \
+    # Use ^\s*weights: to skip comment lines (e.g. "# base_weights: yolov26n.pt")
+    # which also contain "weights:" and would be matched by a plain grep.
+    CFG_ENGINE=$(grep -E "^\s*weights:" "$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml" \
                  | head -1 | awk '{print $2}' | tr -d '"')
     ENGINE_PATH="$REPO/$CFG_ENGINE"
 
@@ -379,7 +374,8 @@ run_smoke() {
 }
 
 get_jetson_ip() {
-    ip addr show eno1 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1
+    # Find the IP in the camera subnet on any interface (not hardcoded to eno1)
+    ip addr show 2>/dev/null | awk '/inet 192\.168\.144\./{print $2}' | cut -d/ -f1 | head -1
 }
 
 # =============================================================================
@@ -388,9 +384,9 @@ get_jetson_ip() {
 show_menu() {
     while true; do
         JETSON_IP=$(get_jetson_ip)
-        ENGINE=$(grep "weights:" "$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml" \
+        ENGINE=$(grep -E "^\s*weights:" "$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml" \
                  | head -1 | awk '{print $2}' | tr -d '"' | xargs basename 2>/dev/null)
-        IMGSZ=$(grep "input_size:" "$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml" \
+        IMGSZ=$(grep -E "^\s*input_size:" "$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml" \
                 | head -1 | awk '{print $2}')
 
         echo -e "\n${C}╔══════════════════════════════════════════════════════╗"

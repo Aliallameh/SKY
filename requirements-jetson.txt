@@ -20,10 +20,11 @@ tqdm>=4.66,<5
 psutil>=5.9,<8
 cffi>=1.15,<2
 
-# OpenCV is often installed by JetPack/apt as python3-opencv. If your venv
-# cannot import cv2, install opencv-python-headless manually or recreate the
-# venv with --system-site-packages.
-opencv-python-headless>=4.7,<5
+# Use opencv-python (GUI-capable build) not opencv-python-headless.
+# Headless cannot open display windows (operator view crashes).
+# System python3-opencv from JetPack is compiled against NumPy 1.x and
+# fails with NumPy 2.x in this venv — do not rely on it.
+opencv-python>=4.7,<5
 
 # Install PyTorch and torchvision from NVIDIA's Jetson channel first.
 # Ultralytics should see that Jetson PyTorch is already installed.

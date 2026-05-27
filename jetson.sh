@@ -652,21 +652,22 @@ show_menu() {
 # Jetson from auto-arming and taking off on boot.
 run_option() {
     local OPT="$1"
+    shift                            # remaining "$@" = extra pass-through args
+    local EXTRA=("$@")               # forwarded verbatim to run_pipeline
     case "$OPT" in
         1)
-            run_pipeline --no-operator-view
+            run_pipeline --no-operator-view "${EXTRA[@]}"
             ;;
         2)
             MJPEG_IP="${JETSON_IP:-192.168.144.10}"
             echo -e "\n${G}MJPEG stream → open http://${MJPEG_IP}:8090 in a browser${N}\n"
-            run_pipeline --operator-view-mode mjpeg
+            run_pipeline --operator-view-mode mjpeg "${EXTRA[@]}"
             ;;
         3)
-            run_pipeline --operator-view-window-backend opencv
+            run_pipeline --operator-view-window-backend opencv "${EXTRA[@]}"
             ;;
         4)
-            run_pipeline --no-operator-view \
-                --no-gimbal-follow
+            run_pipeline --no-operator-view --no-gimbal-follow "${EXTRA[@]}"
             ;;
         5)
             # Pipeline + FC dry-run: computes MAVLink commands and logs
@@ -675,7 +676,8 @@ run_option() {
             info "FC dry-run: commands logged only, serial NOT opened"
             run_pipeline --no-operator-view \
                 --flight-control-enabled \
-                --flight-control-dry-run
+                --flight-control-dry-run \
+                "${EXTRA[@]}"
             ;;
         6)
             # Pipeline + FC LIVE: opens serial to ArduPilot and sends real
@@ -695,7 +697,8 @@ run_option() {
             run_pipeline \
                 --flight-control-enabled \
                 --flight-control-live \
-                --no-gimbal-follow
+                --no-gimbal-follow \
+                "${EXTRA[@]}"
             ;;
         7)
             export_engine
@@ -847,17 +850,21 @@ case "${1:-}" in
         check_engine
         ;;
     run)
-        # Non-interactive dispatch: `./jetson.sh run <N>` runs menu option N
-        # without prompting.  Used by SSH-from-field and the systemd autostart
-        # service.  Model is picked via $SKYSCOUTER_MODEL (else falls back to
-        # the interactive picker, which fails cleanly on a non-TTY).
+        # Non-interactive dispatch: `./jetson.sh run <N> [extra pass-through args]`
+        # runs menu option N without prompting.  Any args after <N> are passed
+        # verbatim to run_pipeline (e.g. --fc-serial /dev/ttyTHS1 --fc-baud 921600).
+        # Used by SSH-from-field and the systemd autostart service.
+        # Model is picked via $SKYSCOUTER_MODEL (else falls back to the
+        # interactive picker, which fails cleanly on a non-TTY).
         if [ -z "${2:-}" ]; then
-            fail "Usage: ./jetson.sh run <option_number>"
+            fail "Usage: ./jetson.sh run <option_number> [extra args]"
         fi
         if ! venv_is_healthy; then
             fail "Venv not ready. Run: ./jetson.sh setup"
         fi
-        run_option "$2"
+        OPT="$2"
+        shift 2          # drop "run" and "<N>" so "$@" is just the extras
+        run_option "$OPT" "$@"
         ;;
     autostart)
         # Shortcut: `./jetson.sh autostart` opens the systemd management menu.

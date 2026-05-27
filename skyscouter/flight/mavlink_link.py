@@ -445,13 +445,29 @@ class MavlinkFlightLink:
             if (now_m - self._last_guided_req_time) >= 0.7:
                 self._send_set_guided()
                 self._last_guided_req_time = now_m
+                import sys as _sys
                 if self._last_yaw_block_reason != "requesting_guided":
-                    self._last_error = (
-                        f"requesting GUIDED (FC currently in '{self._flight_mode or '?'}'); "
-                        "pilot RC mode switch must allow GUIDED for this to take effect"
+                    msg = (
+                        f"FC: requesting GUIDED (currently '{self._flight_mode or '?'}'); "
+                        "if FC stays in this mode, the pilot's RC mode-switch is forcing it. "
+                        "Map one switch position to GUIDED in Mission Planner."
                     )
+                    self._last_error = msg
+                    print(f"[flight] {msg}", file=_sys.stderr, flush=True)
                     self._last_yaw_block_reason = "requesting_guided"
+                else:
+                    print(
+                        f"[flight] SET_MODE GUIDED sent (FC still in '{self._flight_mode or '?'}')",
+                        file=_sys.stderr, flush=True,
+                    )
             return   # wait for next HEARTBEAT to confirm GUIDED
+
+        # Reached GUIDED for the first time — announce it
+        if self._last_yaw_block_reason == "requesting_guided":
+            import sys as _sys
+            print(f"[flight] FC entered GUIDED mode  armed={self.is_armed()}",
+                  file=_sys.stderr, flush=True)
+            self._last_yaw_block_reason = ""
 
         # ---- now in GUIDED -> ARM -> TAKEOFF state machine ----
         if not self.is_armed():
@@ -608,7 +624,26 @@ class MavlinkFlightLink:
             try:
                 cmd = int(getattr(msg, "command", -1))
                 result = int(getattr(msg, "result", -1))
-                if cmd == self._mavutil.mavlink.MAV_CMD_NAV_TAKEOFF:
+                import sys as _sys
+                # Decode common results for human-readable logging
+                mav = self._mavutil.mavlink
+                result_name = {
+                    mav.MAV_RESULT_ACCEPTED: "ACCEPTED",
+                    mav.MAV_RESULT_TEMPORARILY_REJECTED: "TEMP_REJECTED",
+                    mav.MAV_RESULT_DENIED: "DENIED",
+                    mav.MAV_RESULT_UNSUPPORTED: "UNSUPPORTED",
+                    mav.MAV_RESULT_FAILED: "FAILED",
+                    mav.MAV_RESULT_IN_PROGRESS: "IN_PROGRESS",
+                }.get(result, f"result={result}")
+                cmd_name = {
+                    mav.MAV_CMD_DO_SET_MODE: "SET_MODE",
+                    mav.MAV_CMD_COMPONENT_ARM_DISARM: "ARM_DISARM",
+                    mav.MAV_CMD_NAV_TAKEOFF: "NAV_TAKEOFF",
+                    mav.MAV_CMD_CONDITION_YAW: "CONDITION_YAW",
+                }.get(cmd, f"cmd={cmd}")
+                print(f"[flight] FC ACK {cmd_name} -> {result_name}",
+                      file=_sys.stderr, flush=True)
+                if cmd == mav.MAV_CMD_NAV_TAKEOFF:
                     self._last_takeoff_ack_result = result
             except Exception:
                 pass
@@ -666,6 +701,8 @@ class MavlinkFlightLink:
                     0.0, 0.0, 0.0, 0.0, 0.0,
                 )
             self._last_force_arm_req_time = now_m
+            import sys as _sys
+            print("[flight] sent force-ARM (param2=2989)", file=_sys.stderr, flush=True)
         except Exception as exc:
             self._last_error = f"force arm failed: {exc}"
 
@@ -696,6 +733,12 @@ class MavlinkFlightLink:
             if self._first_takeoff_cmd_time <= 0.0:
                 self._first_takeoff_cmd_time = now_m
             self._takeoff_tx_count += 1
+            import sys as _sys
+            print(
+                f"[flight] sent NAV_TAKEOFF #{self._takeoff_tx_count} "
+                f"to alt={self._guided_alt_m:.1f}m AGL",
+                file=_sys.stderr, flush=True,
+            )
         except Exception as exc:
             self._last_error = f"NAV_TAKEOFF failed: {exc}"
 

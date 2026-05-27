@@ -200,19 +200,26 @@ class InterFrameLKThread:
     # ------------------------------------------------------------------
 
     def feed_frame(self, frame_bgr: np.ndarray) -> None:
-        """Non-blocking.  Converts to gray; drops oldest frame if queue is full."""
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        """Non-blocking.  Called from the camera reader thread on EVERY frame.
+
+        Cheap-path design: we enqueue the *BGR* frame as-is and let the LK
+        thread do the cvtColor on dequeue.  cvtColor on 1920x1080 BGR costs
+        ~3-5 ms on the reader thread's CPU which is on the critical path of
+        the latest-frame buffer (and therefore of YOLO throughput).  Moving
+        it to the LK thread reclaims those cycles for the pipeline.
+
+        We also skip enqueue entirely when the queue is saturated — there's
+        no point copying a frame the thread will drop anyway.  The skip
+        happens BEFORE any work, costing only one queue size check.
+        """
+        # Saturation guard: if the LK thread hasn't drained, skip cheaply.
+        # qsize() is approximate but good enough for a drop policy.
+        if self._queue.full():
+            return
         try:
-            self._queue.put_nowait(gray)
+            self._queue.put_nowait(frame_bgr)
         except queue.Full:
-            try:
-                self._queue.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                self._queue.put_nowait(gray)
-            except queue.Full:
-                pass   # still full — just skip this frame
+            pass   # raced with another producer; no harm done
 
     # ------------------------------------------------------------------
     # API — YOLO thread (called at YOLO rate, ~5-7 fps)
@@ -247,9 +254,13 @@ class InterFrameLKThread:
     def _run(self) -> None:
         while self._running:
             try:
-                gray = self._queue.get(timeout=0.5)
+                frame_bgr = self._queue.get(timeout=0.5)
             except queue.Empty:
                 continue
+
+            # Convert BGR -> gray here (off the camera reader's critical path).
+            # ~3-5 ms on 1920x1080 — comfortably under the 33 ms frame budget.
+            gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
 
             with self._lock:
 

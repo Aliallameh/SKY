@@ -190,6 +190,7 @@ class MavlinkFlightLink:
         self._last_force_arm_req_time = 0.0
         self._last_takeoff_ack_result: Optional[int] = None
         self._last_error = ""
+        self._last_yaw_block_reason = ""
 
         # tx accounting
         self._tx_count = 0
@@ -423,15 +424,36 @@ class MavlinkFlightLink:
         # ---- drain incoming messages (flight_mode, armed, relative_alt) ----
         self._poll_fc_messages()
 
-        # ---- pilot/GCS override: stop streaming setpoints ----
-        if self._user_override or not self._guided:
+        # ---- pilot/GCS explicitly took us out of GUIDED -> back off ----
+        # If _user_override is set (we WERE in GUIDED and got kicked out), do
+        # not fight the pilot.  But if we've simply never been in GUIDED yet
+        # (e.g. FC boots in STABILIZE), we should TRY to enter GUIDED — that's
+        # what option 6 is for.
+        if self._user_override:
             return
 
-        # ---- command-start delay ----
+        # ---- command-start delay (gives operator time to abort) ----
         if now_m < self._activate_at_monotonic:
             return
 
-        # ---- ensure GUIDED -> ARM -> TAKEOFF state machine ----
+        # ---- request GUIDED if not there yet ----
+        # This MUST happen before the "not guided -> return" gate, otherwise
+        # we just sit forever sending heartbeats while the FC stays in whatever
+        # mode it booted in (STABILIZE / LOITER / etc).  Throttled to once
+        # every 0.7s so we don't spam.
+        if not self._guided:
+            if (now_m - self._last_guided_req_time) >= 0.7:
+                self._send_set_guided()
+                self._last_guided_req_time = now_m
+                if self._last_yaw_block_reason != "requesting_guided":
+                    self._last_error = (
+                        f"requesting GUIDED (FC currently in '{self._flight_mode or '?'}'); "
+                        "pilot RC mode switch must allow GUIDED for this to take effect"
+                    )
+                    self._last_yaw_block_reason = "requesting_guided"
+            return   # wait for next HEARTBEAT to confirm GUIDED
+
+        # ---- now in GUIDED -> ARM -> TAKEOFF state machine ----
         if not self.is_armed():
             self._force_arm_step()
             return
@@ -626,16 +648,10 @@ class MavlinkFlightLink:
             )
 
     def _force_arm_step(self, interval_s: float = 0.35) -> None:
-        if self._master is None or self._mavutil is None:
+        # Caller (_sender_tick) ensures we're already in GUIDED before calling this.
+        if self._master is None or self._mavutil is None or not self._guided:
             return
         now_m = time.monotonic()
-        # First ensure GUIDED
-        if not self._guided:
-            if (now_m - self._last_guided_req_time) >= 0.7:
-                self._send_set_guided()
-                self._last_guided_req_time = now_m
-            return
-        # Then force-arm
         if (now_m - self._last_force_arm_req_time) < interval_s:
             return
         try:

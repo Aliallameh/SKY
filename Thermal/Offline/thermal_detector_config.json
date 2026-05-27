@@ -4,7 +4,7 @@
   "input": "C:/Users/erfan/Files/SKY/Thermal/ThermalVideos/Video1_Raw_top.mp4",
   "output_dir": "outputs",
 
-  "show": true,
+  "show": false,
   "display_scale": 0.7,
 
   "debug_four_view": true,

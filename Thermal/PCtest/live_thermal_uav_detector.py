@@ -28,7 +28,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from Thermal_detector import detect_frame
+from Thermal_detector import detect_frame, get_last_debug_images
 from thermal_preprocess import preprocess_frame
 
 
@@ -79,6 +79,124 @@ def draw_boxes(frame, boxes):
 
     return output
 
+def to_bgr_or_blank(img, reference):
+    """
+    Convert debug image to BGR.
+    If image is missing, create black image with same size as reference.
+    """
+    if img is None:
+        return np.zeros_like(reference)
+
+    if len(img.shape) == 2:
+        return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+    return img.copy()
+
+
+def put_title(img, title):
+    output = img.copy()
+
+    cv2.putText(
+        output,
+        title,
+        (20, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+    return output
+
+
+def make_debug_view(original_frame, annotated_frame, debug_images, mode="fast6"):
+    """
+    Create debug recording frame.
+
+    mode="full8":
+        1 Original
+        2 Blurred background
+        3 Subtracted/local contrast
+        4 Threshold mask
+        5 Morphology mask
+        6 Raw contour boxes
+        7 Filtered candidates
+        8 Final annotated
+
+    mode="fast6":
+        1 Original
+        2 Blurred background
+        3 Subtracted/local contrast
+        4 Threshold mask
+        5 Filtered candidates
+        6 Final annotated
+
+    fast6 skips morphology and raw contour views to reduce output size/work.
+    """
+
+    h, w = original_frame.shape[:2]
+
+    reference = original_frame.copy()
+
+    if len(reference.shape) == 2:
+        reference = cv2.cvtColor(reference, cv2.COLOR_GRAY2BGR)
+
+    annotated = annotated_frame.copy()
+
+    if len(annotated.shape) == 2:
+        annotated = cv2.cvtColor(annotated, cv2.COLOR_GRAY2BGR)
+
+    original = reference
+
+    blurred = to_bgr_or_blank(debug_images.get("blurred"), reference)
+    subtracted = to_bgr_or_blank(debug_images.get("subtracted"), reference)
+    threshold = to_bgr_or_blank(debug_images.get("threshold_mask"), reference)
+    morphology = to_bgr_or_blank(debug_images.get("morphology_mask"), reference)
+    raw_contours = to_bgr_or_blank(debug_images.get("raw_contours"), reference)
+    filtered = to_bgr_or_blank(debug_images.get("filtered_candidates"), reference)
+
+    # Force every panel to same size as final processed frame
+    panels = {
+        "original": cv2.resize(original, (w, h)),
+        "blurred": cv2.resize(blurred, (w, h)),
+        "subtracted": cv2.resize(subtracted, (w, h)),
+        "threshold": cv2.resize(threshold, (w, h)),
+        "morphology": cv2.resize(morphology, (w, h)),
+        "raw_contours": cv2.resize(raw_contours, (w, h)),
+        "filtered": cv2.resize(filtered, (w, h)),
+        "annotated": cv2.resize(annotated, (w, h)),
+    }
+
+    if mode == "full8":
+        p1 = put_title(panels["original"], "1 Original")
+        p2 = put_title(panels["blurred"], "2 Blurred background")
+        p3 = put_title(panels["subtracted"], "3 Subtracted/local contrast")
+        p4 = put_title(panels["threshold"], "4 Threshold mask")
+        p5 = put_title(panels["morphology"], "5 Morphology mask")
+        p6 = put_title(panels["raw_contours"], "6 Raw contour boxes")
+        p7 = put_title(panels["filtered"], "7 Filtered candidates")
+        p8 = put_title(panels["annotated"], "8 Final annotated")
+
+        row1 = np.hstack([p1, p2, p3, p4])
+        row2 = np.hstack([p5, p6, p7, p8])
+
+        return np.vstack([row1, row2])
+
+    if mode == "fast6":
+        p1 = put_title(panels["original"], "1 Original")
+        p2 = put_title(panels["blurred"], "2 Blurred background")
+        p3 = put_title(panels["subtracted"], "3 Subtracted/local contrast")
+        p4 = put_title(panels["threshold"], "4 Threshold mask")
+        p5 = put_title(panels["filtered"], "5 Filtered candidates")
+        p6 = put_title(panels["annotated"], "6 Final annotated")
+
+        row1 = np.hstack([p1, p2, p3])
+        row2 = np.hstack([p4, p5, p6])
+
+        return np.vstack([row1, row2])
+
+    raise ValueError("debug_record_mode must be either 'fast6' or 'full8'")
 
 def resize_to_same_height(img, target_h):
     h, w = img.shape[:2]
@@ -212,7 +330,33 @@ def create_video_writer(output_dir, frame_shape, fps):
     print(f"[INFO] Recording annotated video to: {output_path}")
 
     return writer, output_path
+def create_named_video_writer(output_dir, filename_prefix, frame_shape, fps):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = output_dir / f"{filename_prefix}_{timestamp}.mp4"
+
+    h, w = frame_shape[:2]
+
+    if fps is None or fps <= 1:
+        fps = 30.0
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+
+    writer = cv2.VideoWriter(
+        str(output_path),
+        fourcc,
+        fps,
+        (w, h),
+    )
+
+    if not writer.isOpened():
+        raise RuntimeError(f"Could not create video writer: {output_path}")
+
+    print(f"[INFO] Recording video to: {output_path}")
+
+    return writer, output_path
 
 def main():
     parser = argparse.ArgumentParser()
@@ -276,12 +420,21 @@ def main():
     output_dir = get_config_value(recording_config, "output_dir", "outputs")
     record_enabled = get_config_value(recording_config, "enabled", True)
 
+    record_final = get_config_value(recording_config, "record_final", True)
+    record_debug = get_config_value(recording_config, "record_debug", False)
+    debug_record_mode = get_config_value(recording_config, "debug_record_mode", "fast6")
+
     if args.no_record:
         record_enabled = False
+        record_final = False
+        record_debug = False
 
     cap = None
-    writer = None
-    output_path = None
+    final_writer = None
+    final_output_path = None
+
+    debug_writer = None
+    debug_output_path = None
 
     try:
         cap = open_camera(
@@ -342,18 +495,54 @@ def main():
                 cv2.LINE_AA,
             )
 
-            # Create writer only after first annotated frame exists.
-            # This guarantees correct video size.
-            if record_enabled and writer is None:
-                writer, output_path = create_video_writer(
+
+
+            # ------------------------------------------------------------
+# Record final annotated one-view video
+# ------------------------------------------------------------
+            if record_enabled and record_final and final_writer is None:
+                final_writer, final_output_path = create_named_video_writer(
                     output_dir=output_dir,
+                    filename_prefix="final_annotated",
                     frame_shape=annotated.shape,
                     fps=camera_fps,
                 )
 
-            # Record annotated detection result, not debug grid.
-            if writer is not None:
-                writer.write(annotated)
+            if final_writer is not None:
+                final_writer.write(annotated)
+
+            # ------------------------------------------------------------
+            # Record debug multi-view video
+            # ------------------------------------------------------------
+            if record_enabled and record_debug:
+                debug_images = get_last_debug_images()
+
+                debug_record_frame = make_debug_view(
+                    original_frame=processed_frame,
+                    annotated_frame=annotated,
+                    debug_images=debug_images,
+                    mode=debug_record_mode,
+                )
+
+                if debug_writer is None:
+                    debug_writer, debug_output_path = create_named_video_writer(
+                        output_dir=output_dir,
+                        filename_prefix=f"debug_{debug_record_mode}",
+                        frame_shape=debug_record_frame.shape,
+                        fps=camera_fps,
+                    )
+
+                debug_writer.write(debug_record_frame)
+
+
+
+            if final_writer is not None:
+                final_writer.release()
+                print(f"[INFO] Final annotated recording saved to: {final_output_path}")
+
+            if debug_writer is not None:
+                debug_writer.release()
+                print(f"[INFO] Debug recording saved to: {debug_output_path}")
 
             if debug_enabled:
                 display = make_live_debug_view(

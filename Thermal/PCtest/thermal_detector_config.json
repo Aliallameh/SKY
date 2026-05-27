@@ -15,11 +15,15 @@
     "split_y": 512
   },
 
-    "recording": {
-    "enabled": true,
-    "output_dir": "outputs",
-    "fps": 30.0
-  },
+"recording": {
+  "enabled": true,
+  "output_dir": "outputs",
+  "fps": 30.0,
+
+  "record_final": true,
+  "record_debug": true,
+  "debug_record_mode": "fast6"
+},
 
   "algorithm": {
     "pre_blur_kernel": 1,

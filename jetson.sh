@@ -16,6 +16,10 @@
 #                        # if venv missing: full setup, then menu
 #   ./jetson.sh setup    # force full environment setup (needs internet)
 #   ./jetson.sh verify   # verify environment only
+#   ./jetson.sh run <N>  # non-interactive: run menu option N
+#                        # Model via env: SKYSCOUTER_MODEL=<dirname>
+#                        # Field workflow: SSH in from laptop, run this.
+#   ./jetson.sh autostart  # systemd service install/enable/disable/logs
 # =============================================================================
 
 set -euo pipefail
@@ -319,10 +323,30 @@ TEMP_CONFIG_PATH=""
 select_model() {
     # Scans data/models/, prints a status table, and sets SELECTED_MODEL_DIR.
     # PURPOSE: "pipeline" = need .engine; "export" = need real .pt
+    #
+    # Non-interactive bypass: if SKYSCOUTER_MODEL is set to a directory name
+    # under data/models/, skip the picker entirely.  Used by `./jetson.sh run`
+    # and by the systemd autostart service.
     local PURPOSE="${1:-pipeline}"
     local MODELS_DIR="$REPO/data/models"
 
     [ -d "$MODELS_DIR" ] || fail "Models directory not found: $MODELS_DIR"
+
+    if [ -n "${SKYSCOUTER_MODEL:-}" ]; then
+        local override_dir="$MODELS_DIR/$SKYSCOUTER_MODEL"
+        if [ -d "$override_dir" ]; then
+            SELECTED_MODEL_DIR="$override_dir"
+            SELECTED_PT_FILE=""
+            for f in "$override_dir/best.pt" "$override_dir/last.pt"; do
+                [ -f "$f" ] && SELECTED_PT_FILE="$f" && break
+            done
+            ok "Model from \$SKYSCOUTER_MODEL: $SKYSCOUTER_MODEL"
+            return 0
+        else
+            warn "\$SKYSCOUTER_MODEL=$SKYSCOUTER_MODEL not found under $MODELS_DIR"
+            warn "Falling back to interactive picker."
+        fi
+    fi
 
     local THIS_L4T
     THIS_L4T=$(grep -oP 'REVISION: \K[0-9.]+' /etc/nv_tegra_release 2>/dev/null || echo "?")
@@ -605,87 +629,208 @@ show_menu() {
         echo -e "║   11) Configure Ethernet IP for camera               ║"
         echo -e "║   12) Re-run full setup                  (needs net) ║"
         echo -e "║   13) Sync Python dependencies           (needs net) ║"
+        echo -e "║   14) Autostart (systemd) — install / enable / logs  ║"
         echo -e "╠══════════════════════════════════════════════════════╣"
         echo -e "║    0) Exit                                           ║"
         echo -e "╚══════════════════════════════════════════════════════╝${N}"
         echo ""
         read -rp "  Select option: " OPT
 
-        case "$OPT" in
-            1)
-                run_pipeline --no-operator-view
-                ;;
-            2)
-                MJPEG_IP="${JETSON_IP:-192.168.144.10}"
-                echo -e "\n${G}MJPEG stream → open http://${MJPEG_IP}:8090 in a browser${N}\n"
-                run_pipeline --operator-view-mode mjpeg
-                ;;
-            3)
-                run_pipeline --operator-view-window-backend opencv
-                ;;
-            4)
-                run_pipeline --no-operator-view \
-                    --no-gimbal-follow
-                ;;
-            5)
-                # Pipeline + FC dry-run: computes MAVLink commands and logs
-                # them to flight_commands.jsonl but does NOT open serial.
-                # Safe to run on the ground / on the bench.  No internet needed.
-                # Gimbal follow stays whatever the config says (default ON).
-                info "FC dry-run: commands logged only, serial NOT opened"
-                run_pipeline --no-operator-view \
-                    --flight-control-enabled \
-                    --flight-control-dry-run
-                ;;
-            6)
-                # Pipeline + FC LIVE: opens serial to ArduPilot and sends real
-                # commands (GUIDED + arm + takeoff + yaw + alt-hold).
-                # GUARDED by an explicit y/N prompt.
-                warn "FC LIVE will arm the FC and take off to flight_control.guided_alt_m"
-                read -rp "  Type 'fly' to confirm real flight: " CONFIRM
-                if [[ "$CONFIRM" != "fly" ]]; then
-                    info "Cancelled."
-                    continue
-                fi
-                run_pipeline \
-                    --flight-control-enabled \
-                    --flight-control-live \
-                    --no-gimbal-follow
-                ;;
-            7)
-                export_engine
-                ;;
-            8)
-                run_preflight
-                ;;
-            9)
-                run_smoke
-                ;;
-            10)
-                verify_env
-                check_engine
-                ;;
-            11)
-                configure_network
-                ;;
-            12)
-                do_setup
-                ;;
-            13)
-                # Manual dependency sync — only run when you have internet.
-                # Picks up new packages added to requirements-jetson.txt after
-                # a git pull.  pip skips already-installed packages instantly.
-                install_requirements
-                ;;
-            0)
-                echo -e "\n${G}Goodbye.${N}\n"
-                exit 0
-                ;;
-            *)
-                warn "Unknown option: $OPT"
-                ;;
-        esac
+        run_option "$OPT" || true
     done
+}
+
+# =============================================================================
+# 7b. NON-INTERACTIVE DISPATCH  (callable from `./jetson.sh run <N>` or systemd)
+# =============================================================================
+# Every numbered menu item delegates here.  Splitting the dispatch out lets the
+# headless autostart (systemd) and SSH-from-field workflow reuse the SAME code
+# path as the interactive menu — no behaviour drift.
+#
+# SAFETY: option 6 (FC LIVE) prompts for a literal "fly" confirmation.  When
+# called non-interactively (no TTY) it REFUSES to run — this prevents the
+# Jetson from auto-arming and taking off on boot.
+run_option() {
+    local OPT="$1"
+    case "$OPT" in
+        1)
+            run_pipeline --no-operator-view
+            ;;
+        2)
+            MJPEG_IP="${JETSON_IP:-192.168.144.10}"
+            echo -e "\n${G}MJPEG stream → open http://${MJPEG_IP}:8090 in a browser${N}\n"
+            run_pipeline --operator-view-mode mjpeg
+            ;;
+        3)
+            run_pipeline --operator-view-window-backend opencv
+            ;;
+        4)
+            run_pipeline --no-operator-view \
+                --no-gimbal-follow
+            ;;
+        5)
+            # Pipeline + FC dry-run: computes MAVLink commands and logs
+            # them to flight_commands.jsonl but does NOT open serial.
+            # Safe to run on the ground / on the bench.  No internet needed.
+            info "FC dry-run: commands logged only, serial NOT opened"
+            run_pipeline --no-operator-view \
+                --flight-control-enabled \
+                --flight-control-dry-run
+            ;;
+        6)
+            # Pipeline + FC LIVE: opens serial to ArduPilot and sends real
+            # commands (GUIDED + arm + takeoff + yaw + alt-hold).
+            # GUARDED — REFUSED in non-interactive mode so systemd cannot
+            # accidentally arm the drone on boot.
+            if [[ ! -t 0 ]]; then
+                fail "Option 6 (FC LIVE) requires interactive confirmation. " \
+                     "Refusing to run from a non-TTY context (systemd / ssh -T)."
+            fi
+            warn "FC LIVE will arm the FC and take off to flight_control.guided_alt_m"
+            read -rp "  Type 'fly' to confirm real flight: " CONFIRM
+            if [[ "$CONFIRM" != "fly" ]]; then
+                info "Cancelled."
+                return 0
+            fi
+            run_pipeline \
+                --flight-control-enabled \
+                --flight-control-live \
+                --no-gimbal-follow
+            ;;
+        7)
+            export_engine
+            ;;
+        8)
+            run_preflight
+            ;;
+        9)
+            run_smoke
+            ;;
+        10)
+            verify_env
+            check_engine
+            ;;
+        11)
+            configure_network
+            ;;
+        12)
+            do_setup
+            ;;
+        13)
+            # Manual dependency sync — only run when you have internet.
+            # Picks up new packages added to requirements-jetson.txt after
+            # a git pull.  pip skips already-installed packages instantly.
+            install_requirements
+            ;;
+        14)
+            autostart_menu
+            ;;
+        0)
+            echo -e "\n${G}Goodbye.${N}\n"
+            exit 0
+            ;;
+        *)
+            warn "Unknown option: $OPT"
+            return 1
+            ;;
+    esac
+}
+
+# =============================================================================
+# 7c. AUTOSTART (systemd user service)
+# =============================================================================
+# Installs ~/.config/systemd/user/skyscouter.service so the pipeline starts on
+# boot.  Service runs `./jetson.sh run $SKYSCOUTER_BOOT_OPTION` with the chosen
+# option (1-5 only; option 6 is refused above when no TTY).
+#
+# The model is picked via SKYSCOUTER_MODEL env var, also baked into the unit.
+SERVICE_PATH="$HOME/.config/systemd/user/skyscouter.service"
+
+autostart_write_unit() {
+    local OPT="$1"
+    local MODEL="$2"
+    mkdir -p "$(dirname "$SERVICE_PATH")"
+    cat > "$SERVICE_PATH" <<EOF
+[Unit]
+Description=SkyScouter autonomous interceptor pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$REPO
+Environment=SKYSCOUTER_MODEL=$MODEL
+Environment=SKYSCOUTER_BOOT_OPTION=$OPT
+ExecStart=$REPO/jetson.sh run $OPT
+Restart=on-failure
+RestartSec=5
+# Don't restart on Ctrl+C / clean exit — only restart on crashes
+RestartPreventExitStatus=0 130 143
+
+[Install]
+WantedBy=default.target
+EOF
+    ok "Wrote $SERVICE_PATH"
+    info "  Boot option: $OPT"
+    info "  Model:       $MODEL"
+}
+
+autostart_menu() {
+    hdr "Autostart (systemd user service)"
+    echo "  Status: $(systemctl --user is-enabled skyscouter.service 2>/dev/null || echo 'not installed')"
+    echo "          $(systemctl --user is-active  skyscouter.service 2>/dev/null || echo 'not running')"
+    echo ""
+    echo "  1) Install / update autostart (pick boot option + model)"
+    echo "  2) Enable autostart on boot"
+    echo "  3) Disable autostart on boot"
+    echo "  4) Start now"
+    echo "  5) Stop now"
+    echo "  6) Show logs (journalctl -fu, follow)"
+    echo "  0) Back"
+    read -rp "  Select: " A
+    case "$A" in
+        1)
+            echo ""
+            echo "  Safe boot options (option 6 refused — would auto-takeoff):"
+            echo "    1) Pipeline (no display)"
+            echo "    2) Pipeline + MJPEG stream"
+            echo "    3) Pipeline + OpenCV window"
+            echo "    4) Pipeline (no gimbal)"
+            echo "    5) Pipeline + FC dry-run"
+            read -rp "  Boot option [1-5]: " BOPT
+            if [[ ! "$BOPT" =~ ^[1-5]$ ]]; then
+                warn "Refused: must be 1-5 (option 6 cannot autostart)"
+                return 1
+            fi
+            select_model "pipeline"
+            local BMODEL
+            BMODEL=$(basename "$SELECTED_MODEL_DIR")
+            autostart_write_unit "$BOPT" "$BMODEL"
+            systemctl --user daemon-reload
+            info "Run 'systemctl --user enable skyscouter' to start on boot."
+            info "Or pick option 2 from this menu."
+            ;;
+        2)
+            [ -f "$SERVICE_PATH" ] || fail "Install first (option 1)."
+            systemctl --user enable skyscouter.service && ok "Enabled"
+            # Make sure it runs even without an active login session
+            loginctl enable-linger "$USER" 2>/dev/null && info "User lingering enabled"
+            ;;
+        3)
+            systemctl --user disable skyscouter.service && ok "Disabled"
+            ;;
+        4)
+            systemctl --user start skyscouter.service && ok "Started"
+            ;;
+        5)
+            systemctl --user stop skyscouter.service && ok "Stopped"
+            ;;
+        6)
+            journalctl --user -fu skyscouter.service
+            ;;
+        0|*)
+            ;;
+    esac
 }
 
 # =============================================================================
@@ -700,6 +845,23 @@ case "${1:-}" in
     verify)
         verify_env
         check_engine
+        ;;
+    run)
+        # Non-interactive dispatch: `./jetson.sh run <N>` runs menu option N
+        # without prompting.  Used by SSH-from-field and the systemd autostart
+        # service.  Model is picked via $SKYSCOUTER_MODEL (else falls back to
+        # the interactive picker, which fails cleanly on a non-TTY).
+        if [ -z "${2:-}" ]; then
+            fail "Usage: ./jetson.sh run <option_number>"
+        fi
+        if ! venv_is_healthy; then
+            fail "Venv not ready. Run: ./jetson.sh setup"
+        fi
+        run_option "$2"
+        ;;
+    autostart)
+        # Shortcut: `./jetson.sh autostart` opens the systemd management menu.
+        autostart_menu
         ;;
     *)
         if ! venv_is_healthy; then

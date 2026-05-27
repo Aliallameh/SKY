@@ -23,6 +23,7 @@ from .perception.base_detector import BaseDetector, Detection
 from .tracking.base_tracker import BaseTracker, Track
 from .bridge.factory import build_mock_guidance_bridge
 from .bridge.mock_guidance_bridge import MockGuidanceBridge
+from .flight.mavlink_link import MavlinkFlightLink
 from .gimbal.follow_controller import GimbalFollowController
 from .guidance.bearing import GuidanceInput
 from .guidance.factory import build_guidance_computer
@@ -58,6 +59,7 @@ class Pipeline:
         diagnostics_writer: Optional[DiagnosticsWriter] = None,
         evaluation_collector: Optional[EvaluationCollector] = None,
         gimbal_follow_controller: Optional[GimbalFollowController] = None,
+        mavlink_flight_link: Optional[MavlinkFlightLink] = None,
     ):
         self._cfg = config
         self._source = frame_source
@@ -73,6 +75,7 @@ class Pipeline:
         self._diagnostics = diagnostics_writer
         self._evaluation = evaluation_collector
         self._gimbal_follow = gimbal_follow_controller
+        self._mavlink_flight = mavlink_flight_link
 
         # Lock state machines per track_id
         self._lock_smachines: Dict[int, LockStateMachine] = {}
@@ -253,6 +256,11 @@ class Pipeline:
                 self._bridge_writer.write(self._mock_bridge.consume(guidance_hint))
             if self._gimbal_follow is not None:
                 self._gimbal_follow.consume(guidance_hint)
+            if self._mavlink_flight is not None:
+                # Same hint, different sink: ArduPilot via MAVLink.  Phase 1
+                # is yaw-only + alt-hold; pitch and forward-velocity come in
+                # later phases.  Defaults to dry-run unless explicitly --fc-live.
+                self._mavlink_flight.consume(guidance_hint)
 
             # 6. Annotate video
             operator_stop_requested = False

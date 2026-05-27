@@ -32,6 +32,7 @@ from skyscouter.output.operator_view import LiveOperatorView
 from skyscouter.output.raw_video_recorder import RawVideoRecorder
 from skyscouter.output.evaluation import DiagnosticsWriter, EvaluationCollector
 from skyscouter.gimbal.factory import build_gimbal_follow_controller
+from skyscouter.flight.factory import build_mavlink_flight_link
 from skyscouter.pipeline import Pipeline
 from skyscouter.utils.config_loader import load_config
 
@@ -112,6 +113,25 @@ def parse_args() -> argparse.Namespace:
                    help="Override gimbal_follow.invert_yaw=true")
     p.add_argument("--gimbal-invert-pitch", action="store_true",
                    help="Override gimbal_follow.invert_pitch=true")
+
+    # ------------------------------------------------------------------
+    # Phase 1 flight-control flags (ArduPilot MAVLink, yaw-only + alt-hold)
+    # ------------------------------------------------------------------
+    p.add_argument("--flight-control-enabled", action="store_true",
+                   help="Override config to enable the ArduPilot MAVLink flight link")
+    p.add_argument("--no-flight-control", action="store_true",
+                   help="Override config to disable the ArduPilot MAVLink flight link")
+    p.add_argument("--flight-control-dry-run", action="store_true",
+                   help="Force flight link to dry-run (compute+log commands, do NOT open serial)")
+    p.add_argument("--flight-control-live", action="store_true",
+                   help="Disable dry-run: actually open serial and send commands to ArduPilot")
+    p.add_argument("--fc-serial", default=None,
+                   help="Override flight_control.serial_port (e.g. /dev/ttyACM0, /dev/ttyTHS1)")
+    p.add_argument("--fc-baud", type=int, default=None,
+                   help="Override flight_control.baud (default 115200 USB; 921600 telemetry)")
+    p.add_argument("--fc-alt-m", type=float, default=None,
+                   help="Override flight_control.guided_alt_m (takeoff/hold altitude in meters AGL)")
+
     return p.parse_args()
 
 
@@ -248,6 +268,35 @@ def main() -> int:
             cfg["gimbal_follow"]["invert_pitch"] = True
         if cfg.get("gimbal_follow", {}).get("enabled", False) and not cfg.get("guidance", {}).get("enabled", False):
             raise ValueError("gimbal_follow.enabled=true requires guidance.enabled=true")
+
+        # -------- flight_control overrides (Phase 1: ArduPilot MAVLink) --------
+        if args.flight_control_enabled and args.no_flight_control:
+            raise ValueError("Use only one of --flight-control-enabled or --no-flight-control")
+        if args.flight_control_dry_run and args.flight_control_live:
+            raise ValueError("Use only one of --flight-control-dry-run or --flight-control-live")
+        if args.flight_control_enabled:
+            cfg.setdefault("flight_control", {})
+            cfg["flight_control"]["enabled"] = True
+        if args.no_flight_control:
+            cfg.setdefault("flight_control", {})
+            cfg["flight_control"]["enabled"] = False
+        if args.flight_control_dry_run:
+            cfg.setdefault("flight_control", {})
+            cfg["flight_control"]["dry_run"] = True
+        if args.flight_control_live:
+            cfg.setdefault("flight_control", {})
+            cfg["flight_control"]["dry_run"] = False
+        if args.fc_serial is not None:
+            cfg.setdefault("flight_control", {})
+            cfg["flight_control"]["serial_port"] = args.fc_serial
+        if args.fc_baud is not None:
+            cfg.setdefault("flight_control", {})
+            cfg["flight_control"]["baud"] = args.fc_baud
+        if args.fc_alt_m is not None:
+            cfg.setdefault("flight_control", {})
+            cfg["flight_control"]["guided_alt_m"] = args.fc_alt_m
+        if cfg.get("flight_control", {}).get("enabled", False) and not cfg.get("guidance", {}).get("enabled", False):
+            raise ValueError("flight_control.enabled=true requires guidance.enabled=true")
         # When --video is passed, override source.type to video_file so the
         # pipeline replays the file instead of opening the live RTSP stream
         # the config originally pointed at.  Lets us A/B-test tracker changes
@@ -345,6 +394,19 @@ def main() -> int:
             if gimbal_follow.log_path is not None:
                 logger.set_artifact("gimbal_follow_commands_jsonl", str(gimbal_follow.log_path))
 
+        # Phase 1: optional MAVLink flight-controller link (ArduPilot, yaw-only).
+        # Same sink pattern as gimbal_follow.  Defaults to dry-run.
+        mavlink_flight = build_mavlink_flight_link(
+            cfg, output_dir=out_dir, run_id=logger.run_id,
+        )
+        if mavlink_flight is not None:
+            mode = "DRY_RUN" if mavlink_flight.dry_run else "LIVE_MAVLINK"
+            logger.info(
+                f"MAVLink flight-control link: enabled mode={mode} "
+                f"({mavlink_flight.status_text()})"
+            )
+            logger.set_artifact("flight_commands_jsonl", str(out_dir / "flight_commands.jsonl"))
+
         try:
             if operator_view_enabled:
                 operator_view = LiveOperatorView.from_config(operator_view_cfg)
@@ -378,6 +440,7 @@ def main() -> int:
                 diagnostics_writer=diagnostics,
                 evaluation_collector=evaluator,
                 gimbal_follow_controller=gimbal_follow,
+                mavlink_flight_link=mavlink_flight,
             )
             status = "completed"
             try:
@@ -404,6 +467,8 @@ def main() -> int:
                 evaluator.write_report(str(eval_path))
             if gimbal_follow is not None:
                 gimbal_follow.close()
+            if mavlink_flight is not None:
+                mavlink_flight.close()
             source.close()
 
         logger.finalize(status=status)

@@ -594,15 +594,17 @@ show_menu() {
         echo -e "║    2) Run live pipeline  (TRT — MJPEG stream)        ║"
         echo -e "║    3) Run live pipeline  (TRT — OpenCV window)       ║"
         echo -e "║    4) Run live pipeline  (gimbal follow DISABLED)    ║"
+        echo -e "║    5) Run pipeline + FC dry-run    (no commands sent)║"
+        echo -e "║    6) Run pipeline + FC LIVE       ⚠ REAL FLIGHT     ║"
         echo -e "╠══════════════════════════════════════════════════════╣"
         echo -e "║  TOOLS                                               ║"
-        echo -e "║    5) Export TRT engine from .pt weights             ║"
-        echo -e "║    6) Preflight check  (camera + deps + config)      ║"
-        echo -e "║    7) Smoke test  (30-second run)                    ║"
-        echo -e "║    8) Verify environment                             ║"
-        echo -e "║    9) Configure Ethernet IP for camera               ║"
-        echo -e "║   10) Re-run full setup                  (needs net) ║"
-        echo -e "║   11) Sync Python dependencies           (needs net) ║"
+        echo -e "║    7) Export TRT engine from .pt weights             ║"
+        echo -e "║    8) Preflight check  (camera + deps + config)      ║"
+        echo -e "║    9) Smoke test  (30-second run)                    ║"
+        echo -e "║   10) Verify environment                             ║"
+        echo -e "║   11) Configure Ethernet IP for camera               ║"
+        echo -e "║   12) Re-run full setup                  (needs net) ║"
+        echo -e "║   13) Sync Python dependencies           (needs net) ║"
         echo -e "╠══════════════════════════════════════════════════════╣"
         echo -e "║    0) Exit                                           ║"
         echo -e "╚══════════════════════════════════════════════════════╝${N}"
@@ -626,25 +628,50 @@ show_menu() {
                     --no-gimbal-follow
                 ;;
             5)
-                export_engine
+                # Pipeline + FC dry-run: computes MAVLink commands and logs
+                # them to flight_commands.jsonl but does NOT open serial.
+                # Safe to run on the ground / on the bench.  No internet needed.
+                # Gimbal follow stays whatever the config says (default ON).
+                info "FC dry-run: commands logged only, serial NOT opened"
+                run_pipeline --no-operator-view \
+                    --flight-control-enabled \
+                    --flight-control-dry-run
                 ;;
             6)
-                run_preflight
+                # Pipeline + FC LIVE: opens serial to ArduPilot and sends real
+                # commands (GUIDED + arm + takeoff + yaw + alt-hold).
+                # GUARDED by an explicit y/N prompt.
+                warn "FC LIVE will arm the FC and take off to flight_control.guided_alt_m"
+                read -rp "  Type 'fly' to confirm real flight: " CONFIRM
+                if [[ "$CONFIRM" != "fly" ]]; then
+                    info "Cancelled."
+                    continue
+                fi
+                run_pipeline \
+                    --flight-control-enabled \
+                    --flight-control-live \
+                    --no-gimbal-follow
                 ;;
             7)
-                run_smoke
+                export_engine
                 ;;
             8)
+                run_preflight
+                ;;
+            9)
+                run_smoke
+                ;;
+            10)
                 verify_env
                 check_engine
                 ;;
-            9)
+            11)
                 configure_network
                 ;;
-            10)
+            12)
                 do_setup
                 ;;
-            11)
+            13)
                 # Manual dependency sync — only run when you have internet.
                 # Picks up new packages added to requirements-jetson.txt after
                 # a git pull.  pip skips already-installed packages instantly.

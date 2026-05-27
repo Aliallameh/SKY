@@ -183,6 +183,34 @@ gimbal_follow:
   log_jsonl: true
   log_filename: "gimbal_follow_commands.jsonl"
 
+# Phase 1 ArduPilot flight-controller link (yaw-only + alt-hold, dry-run default).
+# Mirrors the parameters proven in the engineer's hand_track.py bench setup.
+# To go live: set enabled=true AND dry_run=false (or pass --flight-control-live).
+# IMPORTANT: requires pymavlink (not in requirements-jetson.txt by default).
+# Install once at the office:   pip install pymavlink
+flight_control:
+  enabled: false              # off until explicitly opted in
+  dry_run: true               # computed-but-not-sent by default
+  serial_port: "/dev/ttyACM0" # USB to ArduPilot; alt: /dev/serial/by-id/usb-ArduPilot_*-if00, /dev/ttyTHS1
+  baud: 115200                # 115200 for USB-ACM, 921600 for telemetry radios
+  heartbeat_timeout_s: 8.0    # wait for FC heartbeat before declaring connect failure
+  command_delay_s: 3.0        # wait this long after connect before any FC command
+  guided_alt_m: 2.0           # NAV_TAKEOFF target / altitude-hold setpoint (meters AGL)
+  post_takeoff_settle_s: 4.0  # hold yaw=0 for this long after takeoff is confirmed
+  no_alt_takeoff_confirm_s: 3.0  # if no GLOBAL_POSITION_INT, treat ARM+GUIDED for this long = airborne
+  send_hz: 30.0               # fixed-rate MAVLink command transmission
+  # ---- yaw command shaping ----
+  max_heading_deg: 15.0       # per-command relative heading clamp (matches their PID limit)
+  yaw_slew_deg_s: 15.0        # CONDITION_YAW slew rate (deg/s)
+  yaw_deadband_deg: 1.0       # no yaw command when bearing error within this band
+  invert_yaw: false           # flip sign if your FC convention is opposite
+  # ---- failsafes (Phase 3 will extend these) ----
+  stale_guidance_timeout_s: 0.5  # zero yaw if no valid hint for this long
+  allowed_lock_states: ["TRACKING", "LOCKED", "STRIKE_READY"]
+  # ---- I/O ----
+  log_jsonl: true
+  log_filename: "flight_commands.jsonl"
+
 mock_bridge:
   enabled: false
   output_jsonl: true

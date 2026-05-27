@@ -30,6 +30,9 @@ _GST_NVDEC_AVAILABLE: Optional[bool] = None
 def _check_gst_nvdec() -> bool:
     """Return True if gi.Gst + the nvvideo4linux2 plugin are present."""
     global _GST_NVDEC_AVAILABLE
+    if os.environ.get("SKY_NO_GST"):
+        _GST_NVDEC_AVAILABLE = False
+        return False
     if _GST_NVDEC_AVAILABLE is not None:
         return _GST_NVDEC_AVAILABLE
     try:
@@ -131,7 +134,12 @@ class _GstNvdecCapture:
         sample = self._sink.try_pull_sample(self._PULL_TIMEOUT_NS)
         if sample is None:
             self._drain_bus()
-            return False, None
+            # Distinguish between two cases:
+            #   ok=True,  frame=None → transient timeout; pipeline still alive,
+            #                          caller should retry without reconnecting.
+            #   ok=False, frame=None → pipeline posted EOS/ERROR; caller must
+            #                          release and reconnect.
+            return self._opened, None
 
         caps = sample.get_caps()
         s = caps.get_structure(0)
@@ -234,6 +242,12 @@ class RtspStreamSource(BaseFrameSource):
         self._last_reconnect_utc: Optional[str] = None
         self._capture_backend: str = "unknown"
 
+        # Optional frame observer — called on every decoded frame before the
+        # latest-frame buffer is updated.  Used by InterFrameLKThread to
+        # receive all camera frames at full fps, not just the frames that
+        # reach the YOLO detector.  Registered via register_frame_observer().
+        self._frame_observer_cb = None
+
         self._reader = threading.Thread(
             target=self._reader_loop,
             name=f"skyscouter-rtsp-reader-{self._source_id}",
@@ -241,6 +255,15 @@ class RtspStreamSource(BaseFrameSource):
         )
         self._reader.start()
         self._wait_for_first_frame()
+
+    def register_frame_observer(self, cb) -> None:
+        """Register a callback invoked on every decoded frame (all camera fps).
+
+        The callback receives a single argument: the BGR numpy frame.  It is
+        called from the reader thread so it must be non-blocking (e.g. queue a
+        copy, never do heavy computation inline).  Only one observer at a time.
+        """
+        self._frame_observer_cb = cb
 
     def get_resolution(self) -> Tuple[int, int]:
         return (self._width, self._height)
@@ -344,6 +367,12 @@ class RtspStreamSource(BaseFrameSource):
                     raise RuntimeError(error)
 
     def _reader_loop(self) -> None:
+        # Safety limit for consecutive empty reads (ok=True but frame=None).
+        # Each pull has a 500 ms timeout so 20 consecutive empties ≈ 10 s.
+        # This guards against a GStreamer pipeline that stays "alive" (no
+        # EOS/ERROR on the bus) but stops delivering frames.
+        _EMPTY_READ_LIMIT = 20
+
         while True:
             with self._condition:
                 if self._closed:
@@ -354,6 +383,7 @@ class RtspStreamSource(BaseFrameSource):
                 self._sleep_before_reconnect()
                 continue
 
+            consecutive_empty = 0
             try:
                 while True:
                     with self._condition:
@@ -361,14 +391,39 @@ class RtspStreamSource(BaseFrameSource):
                             return
 
                     ok, frame = cap.read()
-                    if not ok or frame is None:
+
+                    if not ok:
+                        # Real pipeline error (GStreamer EOS/ERROR or FFmpeg
+                        # stream failure) — release and reconnect.
                         self._record_reader_error("RTSP read failed; reconnecting")
                         break
 
+                    if frame is None:
+                        # GStreamer backend only: try_pull_sample timed out but
+                        # the pipeline is still alive (startup latency or brief
+                        # network congestion).  Keep reading without reconnecting.
+                        consecutive_empty += 1
+                        if consecutive_empty >= _EMPTY_READ_LIMIT:
+                            self._record_reader_error(
+                                "RTSP stream produced no frames for 10 s; reconnecting"
+                            )
+                            break
+                        continue
+
+                    consecutive_empty = 0
                     height, width = frame.shape[:2]
                     if self._width <= 0 or self._height <= 0:
                         self._width = int(width)
                         self._height = int(height)
+
+                    # Notify the inter-frame LK thread (or any other observer)
+                    # on EVERY decoded camera frame — before the latest-frame
+                    # buffer is updated.  The callback must be non-blocking.
+                    if self._frame_observer_cb is not None:
+                        try:
+                            self._frame_observer_cb(frame)
+                        except Exception:
+                            pass
 
                     self._raw_read_count += 1
                     with self._condition:

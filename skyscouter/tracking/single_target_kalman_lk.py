@@ -16,6 +16,12 @@ import numpy as np
 
 from ..perception.base_detector import Detection
 from .base_tracker import BaseTracker, Track
+from .inter_frame_lk import (
+    InterFrameLKThread,
+    find_features_in_region,
+    lk_step_with_backcheck,
+    _MIN_TRACKED_POINTS,
+)
 
 
 def _bbox_to_z(d: Detection) -> np.ndarray:
@@ -149,10 +155,23 @@ class AppearanceModel:
 
 
 class LKFlowPropagator:
-    """Sparse optical-flow bbox propagation for short detector gaps."""
+    """Sparse optical-flow bbox propagation used as YOLO-rate fallback.
 
-    def __init__(self, min_points: int = 8):
-        self._min_points = int(min_points)
+    This runs once per YOLO frame (5-7 fps) and bridges the gap between
+    YOLO detections when the inter-frame LK thread is not wired up (e.g.
+    offline video playback).  For live RTSP streams, InterFrameLKThread
+    handles this at full camera FPS (30 fps) and this propagator is only
+    consulted as a secondary check.
+
+    Key improvements over original:
+    - Uses shared find_features_in_region (expanded 35% search area)
+    - Forward-backward consistency check via lk_step_with_backcheck
+    - Lower min_points default (4 instead of 8) for tiny targets
+    - maxLevel=4 instead of 3
+    """
+
+    def __init__(self, min_points: int = 4):
+        self._min_points = max(int(min_points), _MIN_TRACKED_POINTS)
         self._prev_gray: Optional[np.ndarray] = None
         self._prev_det: Optional[Detection] = None
         self._prev_points: Optional[np.ndarray] = None
@@ -161,7 +180,7 @@ class LKFlowPropagator:
     def reset(self, gray: np.ndarray, d: Detection) -> None:
         self._prev_gray = gray.copy()
         self._prev_det = d
-        self._prev_points = self._points_in_detection(gray, d)
+        self._prev_points = find_features_in_region(gray, d)
         self._last_points = None
 
     def accept_prediction(self, gray: np.ndarray, d: Detection) -> None:
@@ -178,26 +197,16 @@ class LKFlowPropagator:
         if len(self._prev_points) < self._min_points:
             return None, 0.0, int(len(self._prev_points))
 
-        next_pts, status, _ = cv2.calcOpticalFlowPyrLK(
-            self._prev_gray,
-            gray,
-            self._prev_points,
-            None,
-            winSize=(21, 21),
-            maxLevel=3,
-            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03),
+        old_good, new_good, delta = lk_step_with_backcheck(
+            self._prev_gray, gray, self._prev_points
         )
-        if next_pts is None or status is None:
-            return None, 0.0, 0
 
-        keep = status.reshape(-1).astype(bool)
-        old = self._prev_points.reshape(-1, 2)[keep]
-        new = next_pts.reshape(-1, 2)[keep]
-        if len(new) < self._min_points:
-            return None, 0.0, int(len(new))
-        self._last_points = new.astype(np.float32).reshape(-1, 1, 2)
+        if delta is None or new_good is None or len(new_good) < self._min_points:
+            n = len(new_good) if new_good is not None else 0
+            return None, 0.0, int(n)
 
-        delta = np.median(new - old, axis=0)
+        self._last_points = new_good.astype(np.float32).reshape(-1, 1, 2)
+
         moved = Detection(
             x=float(self._prev_det.x + delta[0]),
             y=float(self._prev_det.y + delta[1]),
@@ -208,34 +217,12 @@ class LKFlowPropagator:
             class_label=self._prev_det.class_label,
             source="lk_optical_flow",
         )
-        residual = np.linalg.norm((new - old) - delta[None, :], axis=1)
+        residual = np.linalg.norm((new_good - old_good) - delta[None, :], axis=1)
         residual_med = float(np.median(residual)) if len(residual) else 999.0
-        point_score = min(1.0, len(new) / 35.0)
-        residual_score = max(0.0, 1.0 - residual_med / 12.0)
+        point_score = min(1.0, len(new_good) / 20.0)   # scaled to 20 pts instead of 35
+        residual_score = max(0.0, 1.0 - residual_med / 8.0)
         quality = float(np.clip(0.65 * point_score + 0.35 * residual_score, 0.0, 1.0))
-        return moved, quality, int(len(new))
-
-    def _points_in_detection(self, gray: np.ndarray, d: Detection) -> np.ndarray:
-        mask = np.zeros_like(gray)
-        h_img, w_img = gray.shape[:2]
-        x1 = int(np.clip(round(d.x), 0, max(0, w_img - 2)))
-        y1 = int(np.clip(round(d.y), 0, max(0, h_img - 2)))
-        x2 = int(np.clip(round(d.x + d.w), x1 + 1, max(1, w_img - 1)))
-        y2 = int(np.clip(round(d.y + d.h), y1 + 1, max(1, h_img - 1)))
-        pad_x = max(1, int(0.05 * max(1, x2 - x1)))
-        pad_y = max(1, int(0.05 * max(1, y2 - y1)))
-        mask[y1 + pad_y:y2 - pad_y, x1 + pad_x:x2 - pad_x] = 255
-        pts = cv2.goodFeaturesToTrack(
-            gray,
-            maxCorners=80,
-            qualityLevel=0.01,
-            minDistance=4,
-            blockSize=5,
-            mask=mask,
-        )
-        if pts is None:
-            return np.empty((0, 1, 2), dtype=np.float32)
-        return pts.astype(np.float32)
+        return moved, quality, int(len(new_good))
 
 
 class SingleTargetKalmanLKTracker(BaseTracker):
@@ -245,7 +232,7 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         self,
         min_track_length: int = 3,
         track_buffer_frames: int = 30,
-        lk_min_points: int = 8,
+        lk_min_points: int = 4,
         reacquisition_radius_px: float = 160.0,
         max_primary_switches_per_second: float = 1.0,
         max_prediction_only_frames: int = 6,
@@ -260,6 +247,13 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         self._min_prediction_confidence = float(min_prediction_confidence)
         self._appearance = AppearanceModel()
         self._flow = LKFlowPropagator(min_points=lk_min_points)
+
+        # Inter-frame LK thread — runs LK at full camera FPS (30 fps) so the
+        # tracked position stays within 5-10 px between YOLO frames instead of
+        # drifting 30-50 px at 5-7 fps.  Activated via feed_inter_frame().
+        self._inter_lk = InterFrameLKThread()
+        self._inter_lk.start()
+
         self._next_id = 1
         self._track_id: Optional[int] = None
         self._x: Optional[np.ndarray] = None
@@ -270,7 +264,18 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         self._last_time: Optional[float] = None
         self._last_gray: Optional[np.ndarray] = None
 
+    def feed_inter_frame(self, frame_bgr: np.ndarray) -> None:
+        """Feed every raw camera frame to the 30fps inter-frame LK thread.
+
+        Call this from the camera reader thread on EVERY decoded frame,
+        not just the frames that reach the YOLO detector.  When wired up
+        via RtspStreamSource.register_frame_observer(), the LK thread
+        tracks the target at camera FPS between YOLO updates.
+        """
+        self._inter_lk.feed_frame(frame_bgr)
+
     def reset(self) -> None:
+        self._inter_lk.stop()
         self.__init__(
             min_track_length=self._min_track_length,
             track_buffer_frames=self._max_age,
@@ -303,14 +308,50 @@ class SingleTargetKalmanLKTracker(BaseTracker):
             return [self._init_track(best, capture_time_s, gray, image_bgr)]
 
         predicted = self._predict(dt, frame_wh)
+
+        # ------------------------------------------------------------------
+        # Inter-frame LK (30 fps thread) — primary bridge between YOLO frames
+        # ------------------------------------------------------------------
+        inter_det = None
+        inter_quality = 0.0
+        inter_points = 0
+        inter_result = self._inter_lk.get_latest()
+        if inter_result is not None:
+            icx, icy, iw, ih, iq, ipts = inter_result
+            if iq >= 0.20:   # only use if the thread tracked with reasonable quality
+                inter_det = Detection(
+                    x=float(icx - iw / 2.0),
+                    y=float(icy - ih / 2.0),
+                    w=float(iw),
+                    h=float(ih),
+                    confidence=float(np.clip(0.15 + 0.55 * iq, 0.05, 0.72)),
+                    class_id=self._track.detection.class_id if self._track else 0,
+                    class_label=self._track.detection.class_label if self._track else "drone",
+                    source="lk_inter_frame",
+                )
+                inter_quality = iq
+                inter_points = ipts
+
+        # ------------------------------------------------------------------
+        # Per-YOLO-frame LK fallback (for offline video / when thread unavailable)
+        # ------------------------------------------------------------------
         flow_det = None
         flow_quality = 0.0
         flow_points = 0
-        if gray is not None:
+        if gray is not None and inter_det is None:
+            # Only run the per-frame LK when the inter-frame thread has no result
             flow_det, flow_quality, flow_points = self._flow.predict(gray)
             if flow_det is not None:
                 flow_det.confidence = float(np.clip(0.18 + 0.48 * flow_quality, 0.05, 0.70))
 
+        # Prefer inter-frame LK over per-YOLO LK when both available
+        best_lk_det    = inter_det    if inter_det    is not None else flow_det
+        best_lk_qual   = inter_quality if inter_det   is not None else flow_quality
+        best_lk_points = inter_points  if inter_det   is not None else flow_points
+
+        # ------------------------------------------------------------------
+        # YOLO association
+        # ------------------------------------------------------------------
         best_det, score = self._associate(predicted, detections, image_bgr)
         rescue_det = self._rescue_candidate(predicted, best_det, detections)
         if rescue_det is not None and (
@@ -325,13 +366,19 @@ class SingleTargetKalmanLKTracker(BaseTracker):
             best_det = reentry_det
             score = max(score, 0.24 + 0.35 * reentry_det.confidence)
         matched = best_det is not None and score >= 0.18
-        if not matched and flow_det is not None and flow_quality >= 0.25:
-            best_det = flow_det
-            score = flow_quality * 0.55
+
+        # Fall back to LK (inter-frame preferred) when YOLO has no match
+        lk_source_tags = {"lk_optical_flow", "lk_inter_frame"}
+        if not matched and best_lk_det is not None and best_lk_qual >= 0.20:
+            best_det = best_lk_det
+            score = best_lk_qual * 0.55
             matched = True
+            flow_points = best_lk_points
+            flow_quality = best_lk_qual
 
         if matched and best_det is not None:
-            self._age_since_update = 0 if best_det.source != "lk_optical_flow" else self._age_since_update + 1
+            is_lk_source = best_det.source in lk_source_tags
+            self._age_since_update = 0 if not is_lk_source else self._age_since_update + 1
             self._hits += 1
             self._measurement_update(_bbox_to_z(best_det), best_det.confidence)
             det = _z_to_detection(
@@ -341,13 +388,16 @@ class SingleTargetKalmanLKTracker(BaseTracker):
                 source=best_det.source,
                 frame_wh=frame_wh,
             )
-            status = "flow" if best_det.source == "lk_optical_flow" else "detected"
+            status = "flow" if is_lk_source else "detected"
             if gray is not None:
-                if best_det.source == "lk_optical_flow":
+                if is_lk_source:
                     self._flow.accept_prediction(gray, det)
                 else:
+                    # Confirmed YOLO hit — resync BOTH the per-frame LK and the
+                    # inter-frame LK thread to the freshly updated Kalman position
                     self._flow.reset(gray, det)
-            if image_bgr is not None and best_det.source != "lk_optical_flow":
+                    self._inter_lk.reset_from_yolo(gray, det)
+            if image_bgr is not None and not is_lk_source:
                 self._appearance.update(image_bgr, det, best_det.confidence)
         else:
             self._age_since_update += 1
@@ -384,13 +434,17 @@ class SingleTargetKalmanLKTracker(BaseTracker):
             self._clear_track()
             return []
 
+        # Report the best LK stats available for diagnostics
+        diag_flow_points = inter_points if inter_points > 0 else flow_points
+        diag_flow_quality = inter_quality if inter_points > 0 else flow_quality
+
         tr = self._make_track(
             det,
             capture_time_s,
             status=status,
             matched_detection=matched,
-            flow_points=flow_points,
-            flow_quality=flow_quality,
+            flow_points=diag_flow_points,
+            flow_quality=diag_flow_quality,
             association_score=score,
         )
         self._track = tr
@@ -405,6 +459,7 @@ class SingleTargetKalmanLKTracker(BaseTracker):
         self._age_since_update = 0
         self._appearance = AppearanceModel()
         self._flow = LKFlowPropagator(min_points=self._lk_min_points)
+        self._inter_lk.clear()  # stop the 30fps thread from tracking stale position
 
     @property
     def min_track_length(self) -> int:

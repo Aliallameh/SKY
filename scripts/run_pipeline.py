@@ -248,6 +248,17 @@ def main() -> int:
             cfg["gimbal_follow"]["invert_pitch"] = True
         if cfg.get("gimbal_follow", {}).get("enabled", False) and not cfg.get("guidance", {}).get("enabled", False):
             raise ValueError("gimbal_follow.enabled=true requires guidance.enabled=true")
+        # When --video is passed, override source.type to video_file so the
+        # pipeline replays the file instead of opening the live RTSP stream
+        # the config originally pointed at.  Lets us A/B-test tracker changes
+        # against recorded raw_camera.mp4 without re-flying.
+        if args.video:
+            cfg.setdefault("source", {})
+            cfg["source"]["type"] = "video_file"
+            cfg["source"]["strict"] = False
+            cfg["source"]["gimbal_follow"] = cfg.get("gimbal_follow", {})
+            if "gimbal_follow" in cfg:
+                cfg["gimbal_follow"]["enabled"] = False  # no real gimbal during replay
         logger.set_config(cfg)
         logger.set_video_path(args.video)
         logger.info(f"Loaded config: {args.config}")

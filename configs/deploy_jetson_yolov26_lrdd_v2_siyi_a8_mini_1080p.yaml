@@ -82,12 +82,12 @@ tracker:
   backend: "single_target_kalman_lk"
   match_threshold: 0.2
   center_match_threshold_px: 200
-  lk_min_points: 6
-  reacquisition_radius_px: 320
+  lk_min_points: 4              # was 6; lowered for tiny targets (0.08% frame)
+  reacquisition_radius_px: 450  # was 320; wider window for fast-moving drones
   max_primary_switches_per_second: 1.0
-  track_buffer_frames: 36
-  max_prediction_only_frames: 5
-  min_prediction_confidence: 0.08
+  track_buffer_frames: 60       # was 36; longer buffer before giving up
+  max_prediction_only_frames: 12 # was 5; ~2s coast at 6fps with inter-frame LK
+  min_prediction_confidence: 0.06
   reject_edge_initial_detections: true
   edge_reject_margin_px: 2.0
   min_track_length: 3

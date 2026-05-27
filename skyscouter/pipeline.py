@@ -124,6 +124,18 @@ class Pipeline:
     # ---- main loop ----
 
     def run(self) -> None:
+        # Wire inter-frame LK thread to the camera reader if both support it.
+        # This gives the tracker raw camera frames at full camera FPS (30 fps)
+        # so LK tracks between YOLO frames at 5-10 px/step instead of 30-50 px.
+        if (
+            hasattr(self._source, "register_frame_observer")
+            and hasattr(self._tracker, "feed_inter_frame")
+        ):
+            self._source.register_frame_observer(self._tracker.feed_inter_frame)
+            self._logger.info(
+                "Inter-frame LK thread wired: camera frames → tracker.feed_inter_frame"
+            )
+
         # Warmup (fairer first-frame latency)
         self._logger.info("Detector warmup starting")
         try:

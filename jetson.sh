@@ -5,10 +5,16 @@
 # Single entry point for a fresh Jetson Orin.  Run once to set up the
 # environment, then use the menu to run any pipeline or tool.
 #
+# Field-friendly: once the venv exists, `./jetson.sh` goes STRAIGHT to the
+# menu without touching the network.  This means the live pipeline can be
+# launched without internet (e.g. in the field).  Dependency sync is a
+# manual menu action (option 11) for when you have connectivity.
+#
 # Usage:
 #   chmod +x jetson.sh
-#   ./jetson.sh          # setup (if needed) then show menu
-#   ./jetson.sh setup    # force full environment setup
+#   ./jetson.sh          # if venv exists: menu only (offline-safe)
+#                        # if venv missing: full setup, then menu
+#   ./jetson.sh setup    # force full environment setup (needs internet)
 #   ./jetson.sh verify   # verify environment only
 # =============================================================================
 
@@ -595,7 +601,8 @@ show_menu() {
         echo -e "║    7) Smoke test  (30-second run)                    ║"
         echo -e "║    8) Verify environment                             ║"
         echo -e "║    9) Configure Ethernet IP for camera               ║"
-        echo -e "║   10) Re-run full setup                              ║"
+        echo -e "║   10) Re-run full setup                  (needs net) ║"
+        echo -e "║   11) Sync Python dependencies           (needs net) ║"
         echo -e "╠══════════════════════════════════════════════════════╣"
         echo -e "║    0) Exit                                           ║"
         echo -e "╚══════════════════════════════════════════════════════╝${N}"
@@ -637,6 +644,12 @@ show_menu() {
             10)
                 do_setup
                 ;;
+            11)
+                # Manual dependency sync — only run when you have internet.
+                # Picks up new packages added to requirements-jetson.txt after
+                # a git pull.  pip skips already-installed packages instantly.
+                install_requirements
+                ;;
             0)
                 echo -e "\n${G}Goodbye.${N}\n"
                 exit 0
@@ -663,16 +676,16 @@ case "${1:-}" in
         ;;
     *)
         if ! venv_is_healthy; then
-            # Venv is missing, broken, or from a different machine — full setup
+            # Venv is missing, broken, or from a different machine — full setup.
+            # This still needs the network on first install, but only on first
+            # install.  After that, the entry point never touches the network.
             echo -e "${Y}Environment not ready — running full setup...${N}"
             do_setup
-        else
-            # Venv is healthy but requirements may have changed after git pull.
-            # Always sync so new packages added to requirements-jetson.txt are
-            # picked up automatically.  pip skips already-installed packages
-            # instantly, so this adds only a few seconds on a warm venv.
-            install_requirements
         fi
+        # IMPORTANT: do NOT run install_requirements here on a warm venv.
+        # In the field with no internet, that pip call hangs/errors and the
+        # menu never appears, blocking access to the live pipeline.  Dependency
+        # sync is now a menu option (11) for when you have connectivity.
         show_menu
         ;;
 esac

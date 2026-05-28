@@ -668,24 +668,27 @@ _has_display_flag() {
     return 1
 }
 
-# Second-layer submenu: how should the operator view be shown?  Sets the global
+# Operator view is a MODIFIER on the run you just picked — not a second menu.
+# Render it as ONE compact inline prompt with mnemonic keys (h/m/o) and an
+# Enter-default of headless, so it never reads as a duplicate numbered menu
+# stacked on the main one (where 1/2/3 already mean run types).  Sets the global
 # DISPLAY_FLAGS array (forwarded to run_pipeline) and prints any access hint.
+# Legacy digits 1/2/3 still map to h/m/o for muscle memory.
 DISPLAY_FLAGS=()
 choose_display() {
     DISPLAY_FLAGS=()
-    echo ""
-    echo -e "  ${W}Operator view — how should frames be shown?${N}"
-    echo "    1) Headless      — no operator view (best frame rate; for FPS tests)"
-    echo "    2) MJPEG stream  — view in a browser at http://<jetson-ip>:8090"
-    echo "    3) OpenCV window — local window on a display attached to the Jetson"
-    read -rp "  Operator view [1]: " D; D="${D:-1}"
-    case "$D" in
-        1) DISPLAY_FLAGS=(--no-operator-view) ;;
-        2) DISPLAY_FLAGS=(--operator-view-mode mjpeg)
-           local MJ="${JETSON_IP:-192.168.144.10}"
-           echo -e "\n${G}MJPEG stream → open http://${MJ}:8090 in a browser${N}" ;;
-        3) DISPLAY_FLAGS=(--operator-view-mode window --operator-view-window-backend opencv) ;;
-        *) warn "Invalid operator-view choice: $D"; return 1 ;;
+    echo -e "  ${W}Operator view${N} ${B}(Enter = headless)${N}:  ${W}h${N}eadless · ${W}m${N}jpeg stream · ${W}o${N}pencv window"
+    read -rp "  View [h/m/o]: " D
+    case "${D,,}" in
+        ""|h|headless|1)
+            DISPLAY_FLAGS=(--no-operator-view) ;;
+        m|mjpeg|2)
+            DISPLAY_FLAGS=(--operator-view-mode mjpeg)
+            echo -e "  ${G}MJPEG stream → open http://${JETSON_IP:-192.168.144.10}:8090 in a browser${N}" ;;
+        o|opencv|window|3)
+            DISPLAY_FLAGS=(--operator-view-mode window --operator-view-window-backend opencv) ;;
+        *)
+            warn "Unknown view '$D' — choose h, m, or o."; return 1 ;;
     esac
     return 0
 }

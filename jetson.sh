@@ -8,7 +8,7 @@
 # Field-friendly: once the venv exists, `./jetson.sh` goes STRAIGHT to the
 # menu without touching the network.  This means the live pipeline can be
 # launched without internet (e.g. in the field).  Dependency sync is a
-# manual menu action (option 11) for when you have connectivity.
+# manual menu action (option 13) for when you have connectivity.
 #
 # Usage:
 #   chmod +x jetson.sh
@@ -217,10 +217,80 @@ install_requirements() {
     ok "All requirements installed"
 }
 
+ensure_git_lfs() {
+    # Model weights (best.pt) are tracked with git-LFS.  On a fresh Jetson clone
+    # git-lfs is often missing, so the .pt files are tiny pointer stubs and the
+    # TRT export fails ("git-LFS pointer (N bytes)").  Make sure the tool is
+    # present and the real weights are downloaded.
+    hdr "Git LFS (model weights)"
+
+    if ! command -v git-lfs >/dev/null 2>&1; then
+        warn "git-lfs is NOT installed — model .pt files are LFS pointers, not real weights."
+        echo ""
+        info "Install it yourself (needs sudo), then re-run ./jetson.sh:"
+        echo -e "      ${W}sudo apt-get update${N}"
+        echo -e "      ${W}sudo apt-get install -y git-lfs${N}"
+        return 1
+    fi
+    ok "git-lfs present ($(git-lfs version 2>/dev/null | awk '{print $1}'))"
+
+    if [ ! -d "$REPO/.git" ]; then
+        warn "$REPO is not a git checkout — cannot 'git lfs pull' (weights must be copied manually)."
+        return 0
+    fi
+
+    # Per-repo hooks (idempotent, no sudo).
+    git -C "$REPO" lfs install --local >/dev/null 2>&1 || true
+
+    info "Fetching LFS-tracked weights (git lfs pull)..."
+    if git -C "$REPO" lfs pull 2>/dev/null; then
+        ok "LFS weights present"
+    else
+        warn "git lfs pull failed (no network?).  Run 'git lfs pull' in $REPO when online."
+        return 1
+    fi
+}
+
+ensure_tensorrt_hint() {
+    # Called when `import tensorrt` fails inside the venv.  TensorRT itself
+    # ships with JetPack, but its PYTHON binding (python3-libnvinfer) is a
+    # separate apt package with no aarch64 PyPI wheel — on a fresh flash it is
+    # often missing, which is exactly why the engine never gets built.
+    #
+    # Distinguish two cases so the user gets the right fix:
+    #   (a) system python3 HAS tensorrt but the venv can't see it  → venv was
+    #       not created with --system-site-packages (a recreate fixes it).
+    #   (b) system python3 ALSO lacks it  → the apt binding isn't installed.
+    hdr "TensorRT python binding missing"
+    warn "The venv python cannot 'import tensorrt' — the TRT engine cannot be built."
+
+    if /usr/bin/python3 -c "import tensorrt" 2>/dev/null; then
+        local SYS_TRT
+        SYS_TRT=$(/usr/bin/python3 -c "import tensorrt; print(tensorrt.__version__)" 2>/dev/null)
+        warn "System python3 HAS tensorrt $SYS_TRT, but this venv does not inherit it."
+        info "The venv must be created with --system-site-packages so it picks up"
+        info "the JetPack tensorrt binding from /usr/lib/python3/dist-packages."
+        info "Fix: recreate the venv via menu option 12 (Re-run full setup), or check"
+        info "that $VENV/pyvenv.cfg has 'include-system-site-packages = true'."
+    else
+        warn "The JetPack python binding for TensorRT is not installed on this Jetson."
+        echo ""
+        info "Run these yourself (they need sudo), then re-run ./jetson.sh:"
+        echo -e "      ${W}sudo apt-get update${N}"
+        echo -e "      ${W}sudo apt-get install -y python3-libnvinfer python3-libnvinfer-dev${N}"
+    fi
+}
+
 verify_env() {
     hdr "Environment verification"
-    pyrun -c "
-import sys, torch, cv2, ultralytics, tensorrt
+
+    # Core runtime (torch / cv2 / ultralytics + CUDA) is checked first and must
+    # all pass.  tensorrt is checked SEPARATELY below: a missing JetPack python
+    # binding needs its own remediation and must NOT be hidden behind a blanket
+    # "all imports verified" message (the old code printed that unconditionally,
+    # even when `import tensorrt` had just crashed).
+    if ! pyrun -c "
+import sys, torch, cv2, ultralytics
 cap = torch.cuda.get_device_capability()
 sm  = f'sm_{cap[0]}{cap[1]}'
 assert torch.cuda.is_available(),      'CUDA not available in torch'
@@ -230,10 +300,20 @@ torch.mm(x, x)  # confirm cuBLAS works
 print(f'  torch        {torch.__version__}  CUDA:{torch.version.cuda}  GPU:{sm}')
 print(f'  cv2          {cv2.__version__}')
 print(f'  ultralytics  {ultralytics.__version__}')
-print(f'  tensorrt     {tensorrt.__version__}')
 print(f'  python       {sys.version.split()[0]}')
-"
-    ok "All imports verified"
+"; then
+        warn "Core runtime check failed (torch / cv2 / ultralytics / CUDA)."
+        return 1
+    fi
+
+    if pyrun -c "import tensorrt" 2>/dev/null; then
+        pyrun -c "import tensorrt; print(f'  tensorrt     {tensorrt.__version__}')"
+        ok "All imports verified"
+        return 0
+    else
+        ensure_tensorrt_hint
+        return 1
+    fi
 }
 
 check_engine() {
@@ -258,14 +338,14 @@ print(m['platform'].get('jetson_l4t_release','?').split('REVISION:')[1].split(',
                 ok "Engine $ENGINE_PATH — built on this Jetson (R36.$THIS_L4T) ✓"
             else
                 warn "Engine was built on R36.$BUILT_ON, this Jetson is R36.$THIS_L4T"
-                warn "Detections may be wrong. Run option 4 to rebuild the engine."
+                warn "Detections may be wrong. Run option 7 to rebuild the engine."
             fi
         else
             ok "Engine $ENGINE_PATH exists"
         fi
     else
         warn "Engine not found: $ENGINE_PATH"
-        warn "Run option 4 from the menu to build it (~6 min)."
+        warn "Run option 7 from the menu to build it (~6 min)."
     fi
 }
 
@@ -278,7 +358,13 @@ do_setup() {
     install_torch
     install_cudss
     install_requirements
-    verify_env
+    # Pull real model weights via git-lfs (best.pt is an LFS pointer otherwise).
+    # Don't abort if git-lfs is missing/offline — the hint is shown and setup
+    # continues so the rest of the environment is still verified.
+    ensure_git_lfs || true
+    # Don't abort setup if verify fails (e.g. tensorrt binding missing): we
+    # still want check_engine + the remediation hint to be shown to the user.
+    verify_env || true
     check_engine
     echo -e "\n${G}Setup complete. Run ./jetson.sh to launch the menu.${N}\n"
 }
@@ -567,6 +653,56 @@ run_pipeline() {
     rm -f "$CFG"
 }
 
+# Returns 0 if the given args already contain an operator-view display flag.
+# Used so the non-interactive `run <N>` / systemd path defaults to headless
+# (safe on a boot with no display) while the interactive menu can override it
+# with whatever the operator-view submenu chose.
+_has_display_flag() {
+    local a
+    for a in "$@"; do
+        case "$a" in
+            --no-operator-view|--operator-view|--operator-view-mode|--operator-view-window-backend)
+                return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# Second-layer submenu: how should the operator view be shown?  Sets the global
+# DISPLAY_FLAGS array (forwarded to run_pipeline) and prints any access hint.
+DISPLAY_FLAGS=()
+choose_display() {
+    DISPLAY_FLAGS=()
+    echo ""
+    echo -e "  ${W}Operator view — how should frames be shown?${N}"
+    echo "    1) Headless      — no operator view (best frame rate; for FPS tests)"
+    echo "    2) MJPEG stream  — view in a browser at http://<jetson-ip>:8090"
+    echo "    3) OpenCV window — local window on a display attached to the Jetson"
+    read -rp "  Operator view [1]: " D; D="${D:-1}"
+    case "$D" in
+        1) DISPLAY_FLAGS=(--no-operator-view) ;;
+        2) DISPLAY_FLAGS=(--operator-view-mode mjpeg)
+           local MJ="${JETSON_IP:-192.168.144.10}"
+           echo -e "\n${G}MJPEG stream → open http://${MJ}:8090 in a browser${N}" ;;
+        3) DISPLAY_FLAGS=(--operator-view-mode window --operator-view-window-backend opencv) ;;
+        *) warn "Invalid operator-view choice: $D"; return 1 ;;
+    esac
+    return 0
+}
+
+# Guard for the FC LIVE run types.  REFUSES in non-interactive mode so systemd
+# cannot arm the FC and take off on boot; otherwise requires a literal "fly".
+_fc_live_guard() {
+    if [[ ! -t 0 ]]; then
+        fail "FC LIVE requires interactive confirmation. " \
+             "Refusing to run from a non-TTY context (systemd / ssh -T)."
+    fi
+    warn "FC LIVE will arm the FC and take off to flight_control.guided_alt_m"
+    read -rp "  Type 'fly' to confirm real flight: " CONFIRM
+    [[ "$CONFIRM" == "fly" ]] || { info "Cancelled."; return 1; }
+    return 0
+}
+
 run_preflight() {
     hdr "Preflight check"
     cd "$REPO"
@@ -593,6 +729,25 @@ run_smoke() {
     rm -f "$CFG"
 }
 
+run_tests() {
+    # Run the pytest unit-test suite (tests/).  This is the offline, hardware-
+    # free regression check (76 tests: schemas, tracker, guidance, lock state
+    # machine, pipeline smoke, etc.) — distinct from menu option 9 "Smoke test",
+    # which spins up the LIVE camera pipeline for ~30 s.
+    hdr "Unit tests (pytest)"
+    cd "$REPO"
+    if ! pyrun -c "import pytest" 2>/dev/null; then
+        warn "pytest is not installed in the venv."
+        info "Install it via menu option 13 (Sync Python dependencies), or:"
+        echo -e "      ${W}$PY -m pip install pytest${N}"
+        return 1
+    fi
+    info "Running tests/ — each test prints PASSED/FAILED below."
+    # -v so every test reports PASSED (green) individually; extra args (e.g.
+    # '-k tracker') are forwarded verbatim from './jetson.sh run 15 -k tracker'.
+    pyrun -m pytest "$REPO/tests" -v "$@"
+}
+
 get_jetson_ip() {
     # Find the IP in the camera subnet on any interface (not hardcoded to eno1)
     ip addr show 2>/dev/null | awk '/inet 192\.168\.144\./{print $2}' | cut -d/ -f1 | head -1
@@ -613,30 +768,41 @@ show_menu() {
         printf  "║  Models : %-43s║\n" "$MODEL_COUNT dirs  ($ENGINE_COUNT with .engine)  — selected at runtime"
         printf  "║  Jetson : %-43s║\n" "${JETSON_IP:-not configured}  →  Camera: 192.168.144.25"
         echo -e "╠══════════════════════════════════════════════════════╣"
-        echo -e "║  PIPELINE                                            ║"
-        echo -e "║    1) Run live pipeline  (TRT — no display)          ║"
-        echo -e "║    2) Run live pipeline  (TRT — MJPEG stream)        ║"
-        echo -e "║    3) Run live pipeline  (TRT — OpenCV window)       ║"
-        echo -e "║    4) Run live pipeline  (gimbal follow DISABLED)    ║"
-        echo -e "║    5) Run pipeline + FC dry-run    (no commands sent)║"
-        echo -e "║    6) Run pipeline + FC LIVE       ⚠ REAL FLIGHT     ║"
+        echo -e "║  PIPELINE   (you pick the operator view next)        ║"
+        echo -e "║    1) Live pipeline             (gimbal follow ON)   ║"
+        echo -e "║    2) Live pipeline             (gimbal follow OFF)  ║"
+        echo -e "║    3) Pipeline + FC dry-run     (no commands sent)   ║"
+        echo -e "║    4) Pipeline + FC LIVE  ⚠ REAL FLIGHT (gimbal ON)  ║"
+        echo -e "║    5) Pipeline + FC LIVE  ⚠ REAL FLIGHT (gimbal OFF) ║"
         echo -e "╠══════════════════════════════════════════════════════╣"
         echo -e "║  TOOLS                                               ║"
         echo -e "║    7) Export TRT engine from .pt weights             ║"
         echo -e "║    8) Preflight check  (camera + deps + config)      ║"
-        echo -e "║    9) Smoke test  (30-second run)                    ║"
+        echo -e "║    9) Live smoke test  (30-sec camera pipeline run)  ║"
         echo -e "║   10) Verify environment                             ║"
         echo -e "║   11) Configure Ethernet IP for camera               ║"
         echo -e "║   12) Re-run full setup                  (needs net) ║"
         echo -e "║   13) Sync Python dependencies           (needs net) ║"
         echo -e "║   14) Autostart (systemd) — install / enable / logs  ║"
+        echo -e "║   15) Run unit tests  (pytest suite — offline)       ║"
         echo -e "╠══════════════════════════════════════════════════════╣"
         echo -e "║    0) Exit                                           ║"
         echo -e "╚══════════════════════════════════════════════════════╝${N}"
         echo ""
         read -rp "  Select option: " OPT
 
-        run_option "$OPT" || true
+        # Pipeline run types (1-5) get the operator-view submenu first; the
+        # chosen display flags are forwarded to run_option as pass-through args.
+        case "$OPT" in
+            1|2|3|4|5)
+                if choose_display; then
+                    run_option "$OPT" "${DISPLAY_FLAGS[@]}" || true
+                fi
+                ;;
+            *)
+                run_option "$OPT" || true
+                ;;
+        esac
     done
 }
 
@@ -647,54 +813,58 @@ show_menu() {
 # headless autostart (systemd) and SSH-from-field workflow reuse the SAME code
 # path as the interactive menu — no behaviour drift.
 #
-# SAFETY: option 6 (FC LIVE) prompts for a literal "fly" confirmation.  When
-# called non-interactively (no TTY) it REFUSES to run — this prevents the
+# SAFETY: options 4 & 5 (FC LIVE) prompt for a literal "fly" confirmation.  When
+# called non-interactively (no TTY) they REFUSE to run — this prevents the
 # Jetson from auto-arming and taking off on boot.
 run_option() {
     local OPT="$1"
     shift                            # remaining "$@" = extra pass-through args
     local EXTRA=("$@")               # forwarded verbatim to run_pipeline
+    # For pipeline runs (1-5): default to headless when no display flag was
+    # passed (the systemd / `run <N>` path), so a display-less boot never tries
+    # to open a window.  The interactive menu passes the chosen display flags as
+    # EXTRA, which suppress this default.
+    local DISP=()
+    case "$OPT" in
+        1|2|3|4|5)
+            _has_display_flag "${EXTRA[@]}" || DISP=(--no-operator-view)
+            ;;
+    esac
     case "$OPT" in
         1)
-            run_pipeline --no-operator-view "${EXTRA[@]}"
+            # Live pipeline, gimbal follow ENABLED.
+            run_pipeline "${DISP[@]}" "${EXTRA[@]}"
             ;;
         2)
-            MJPEG_IP="${JETSON_IP:-192.168.144.10}"
-            echo -e "\n${G}MJPEG stream → open http://${MJPEG_IP}:8090 in a browser${N}\n"
-            run_pipeline --operator-view-mode mjpeg "${EXTRA[@]}"
+            # Live pipeline, gimbal follow DISABLED.
+            run_pipeline "${DISP[@]}" --no-gimbal-follow "${EXTRA[@]}"
             ;;
         3)
-            run_pipeline --operator-view-window-backend opencv "${EXTRA[@]}"
-            ;;
-        4)
-            run_pipeline --no-operator-view --no-gimbal-follow "${EXTRA[@]}"
-            ;;
-        5)
-            # Pipeline + FC dry-run: computes MAVLink commands and logs
-            # them to flight_commands.jsonl but does NOT open serial.
-            # Safe to run on the ground / on the bench.  No internet needed.
+            # Pipeline + FC dry-run: computes MAVLink commands and logs them to
+            # flight_commands.jsonl but does NOT open serial.  Safe on the bench.
             info "FC dry-run: commands logged only, serial NOT opened"
-            run_pipeline --no-operator-view \
+            run_pipeline "${DISP[@]}" \
                 --flight-control-enabled \
                 --flight-control-dry-run \
                 "${EXTRA[@]}"
             ;;
-        6)
-            # Pipeline + FC LIVE: opens serial to ArduPilot and sends real
-            # commands (GUIDED + arm + takeoff + yaw + alt-hold).
-            # GUARDED — REFUSED in non-interactive mode so systemd cannot
-            # accidentally arm the drone on boot.
-            if [[ ! -t 0 ]]; then
-                fail "Option 6 (FC LIVE) requires interactive confirmation. " \
-                     "Refusing to run from a non-TTY context (systemd / ssh -T)."
-            fi
-            warn "FC LIVE will arm the FC and take off to flight_control.guided_alt_m"
-            read -rp "  Type 'fly' to confirm real flight: " CONFIRM
-            if [[ "$CONFIRM" != "fly" ]]; then
-                info "Cancelled."
-                return 0
-            fi
-            run_pipeline \
+        4)
+            # Pipeline + FC LIVE, gimbal follow ENABLED — REAL FLIGHT.
+            # Opens serial to ArduPilot and sends real commands (GUIDED + arm +
+            # takeoff + yaw + alt-hold).  GUARDED — refused on non-TTY so systemd
+            # cannot arm the drone on boot.
+            _fc_live_guard || return 0
+            run_pipeline "${DISP[@]}" \
+                --flight-control-enabled \
+                --flight-control-live \
+                "${EXTRA[@]}"
+            ;;
+        5)
+            # Pipeline + FC LIVE, gimbal follow DISABLED — REAL FLIGHT.
+            # Same as option 4 but the SIYI gimbal follow loop is turned off
+            # (airframe yaw only).  GUARDED — refused on non-TTY.
+            _fc_live_guard || return 0
+            run_pipeline "${DISP[@]}" \
                 --flight-control-enabled \
                 --flight-control-live \
                 --no-gimbal-follow \
@@ -710,7 +880,7 @@ run_option() {
             run_smoke
             ;;
         10)
-            verify_env
+            verify_env || true
             check_engine
             ;;
         11)
@@ -728,6 +898,9 @@ run_option() {
         14)
             autostart_menu
             ;;
+        15)
+            run_tests "${EXTRA[@]}"
+            ;;
         0)
             echo -e "\n${G}Goodbye.${N}\n"
             exit 0
@@ -744,7 +917,8 @@ run_option() {
 # =============================================================================
 # Installs ~/.config/systemd/user/skyscouter.service so the pipeline starts on
 # boot.  Service runs `./jetson.sh run $SKYSCOUTER_BOOT_OPTION` with the chosen
-# option (1-5 only; option 6 is refused above when no TTY).
+# option (1-3 only; FC LIVE options 4/5 are refused above when no TTY).  The
+# boot path passes no display flag, so the pipeline runs headless.
 #
 # The model is picked via SKYSCOUTER_MODEL env var, also baked into the unit.
 SERVICE_PATH="$HOME/.config/systemd/user/skyscouter.service"
@@ -794,15 +968,14 @@ autostart_menu() {
     case "$A" in
         1)
             echo ""
-            echo "  Safe boot options (option 6 refused — would auto-takeoff):"
-            echo "    1) Pipeline (no display)"
-            echo "    2) Pipeline + MJPEG stream"
-            echo "    3) Pipeline + OpenCV window"
-            echo "    4) Pipeline (no gimbal)"
-            echo "    5) Pipeline + FC dry-run"
-            read -rp "  Boot option [1-5]: " BOPT
-            if [[ ! "$BOPT" =~ ^[1-5]$ ]]; then
-                warn "Refused: must be 1-5 (option 6 cannot autostart)"
+            echo "  Safe boot options (FC LIVE 4/5 refused — would auto-takeoff):"
+            echo "    1) Live pipeline           (gimbal follow ON)"
+            echo "    2) Live pipeline           (gimbal follow OFF)"
+            echo "    3) Pipeline + FC dry-run   (no commands sent)"
+            echo "  Boot always runs headless (no operator view)."
+            read -rp "  Boot option [1-3]: " BOPT
+            if [[ ! "$BOPT" =~ ^[1-3]$ ]]; then
+                warn "Refused: must be 1-3 (FC LIVE options 4/5 cannot autostart)"
                 return 1
             fi
             select_model "pipeline"
@@ -846,8 +1019,17 @@ case "${1:-}" in
         do_setup
         ;;
     verify)
-        verify_env
+        verify_env || true
         check_engine
+        ;;
+    test|tests)
+        # Run the offline pytest unit-test suite.  Extra args are forwarded:
+        #   ./jetson.sh test -k tracker
+        shift || true
+        if ! venv_is_healthy; then
+            fail "Venv not ready. Run: ./jetson.sh setup"
+        fi
+        run_tests "$@"
         ;;
     run)
         # Non-interactive dispatch: `./jetson.sh run <N> [extra pass-through args]`
@@ -881,7 +1063,7 @@ case "${1:-}" in
         # IMPORTANT: do NOT run install_requirements here on a warm venv.
         # In the field with no internet, that pip call hangs/errors and the
         # menu never appears, blocking access to the live pipeline.  Dependency
-        # sync is now a menu option (11) for when you have connectivity.
+        # sync is now a menu option (13) for when you have connectivity.
         show_menu
         ;;
 esac

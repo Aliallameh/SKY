@@ -36,6 +36,15 @@ ultralytics>=8.4,<8.5
 onnx>=1.12.0,<2.0.0
 onnxslim>=0.1.71
 
+# Flight control link (Phase 1+).  The MAVLink interception layer talks to the
+# Pixhawk over a serial link via pymavlink, which uses pyserial underneath for
+# the serial transport.  Both are pure-python (aarch64 wheels available) and do
+# NOT touch the JetPack CUDA stack.  mavlink_link.py imports pymavlink lazily, so
+# the perception-only pipeline still runs if these are absent — but the FC
+# options (menu 5/6) need them.
+pyserial>=3.5,<4
+pymavlink>=2.4.40,<3
+
 # Development and regression checks on the Jetson venv.
 pytest>=7.4,<9
 

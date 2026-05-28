@@ -503,7 +503,7 @@ class MavlinkFlightLink:
         except ImportError:
             self._last_error = (
                 "pymavlink is not installed.  Run: pip install pymavlink "
-                "(or use menu option 11 to sync requirements)."
+                "(or use jetson.sh menu option 13 to sync requirements)."
             )
             return False
 

@@ -693,6 +693,86 @@ choose_display() {
     return 0
 }
 
+PID_CONFIG="$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml"
+_read_float_or_default() {
+    local PROMPT="$1"
+    local DEFAULT="$2"
+    local VALUE
+    while true; do
+        read -rp "$PROMPT [$DEFAULT]: " VALUE
+        VALUE="${VALUE:-$DEFAULT}"
+        if "$PY" -c "float('$VALUE')" >/dev/null 2>&1; then
+            printf '%s' "$VALUE"
+            return 0
+        fi
+        echo -e "${Y}  ⚠ Enter a numeric value, for example 2.0 or 0.05${N}" >&2
+    done
+}
+
+configure_pid_gains() {
+    if [[ ! -t 0 ]]; then
+        fail "PID gain config requires interactive input."
+    fi
+    echo -e "  ${W}Yaw PID gains config${N} ${B}($PID_CONFIG)${N}"
+    local KP KI KD
+    KP=$(_read_float_or_default "  Kp yaw" "2.0")
+    KI=$(_read_float_or_default "  Ki yaw" "0.0")
+    KD=$(_read_float_or_default "  Kd yaw" "0.0")
+    "$PY" - "$PID_CONFIG" "$KP" "$KI" "$KD" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+kp, ki, kd = sys.argv[2:5]
+lines = path.read_text(encoding="utf-8").splitlines()
+out = []
+in_guidance = False
+in_controller = False
+seen = {"mode": False, "kp_yaw": False, "ki_yaw": False, "kd_yaw": False}
+
+for line in lines:
+    stripped = line.strip()
+    indent = len(line) - len(line.lstrip(" "))
+    if indent == 0:
+        in_guidance = stripped == "guidance:"
+        in_controller = False
+    elif in_guidance and indent == 2:
+        if in_controller:
+            for key, value in (("mode", '"yaw_pid"'), ("kp_yaw", kp), ("ki_yaw", ki), ("kd_yaw", kd)):
+                if not seen[key]:
+                    out.append(f"    {key}: {value}")
+                    seen[key] = True
+        in_controller = stripped == "controller:"
+    if in_controller and indent == 4:
+        key = stripped.split(":", 1)[0]
+        if key == "mode":
+            out.append("    mode: \"yaw_pid\"")
+            seen["mode"] = True
+            continue
+        if key == "kp_yaw":
+            out.append(f"    kp_yaw: {kp}")
+            seen["kp_yaw"] = True
+            continue
+        if key == "ki_yaw":
+            out.append(f"    ki_yaw: {ki}")
+            seen["ki_yaw"] = True
+            continue
+        if key == "kd_yaw":
+            out.append(f"    kd_yaw: {kd}")
+            seen["kd_yaw"] = True
+            continue
+    out.append(line)
+
+if in_controller:
+    for key, value in (("mode", '"yaw_pid"'), ("kp_yaw", kp), ("ki_yaw", ki), ("kd_yaw", kd)):
+        if not seen[key]:
+            out.append(f"    {key}: {value}")
+
+path.write_text("\n".join(out) + "\n", encoding="utf-8")
+PY
+    ok "Updated PID gains in $(basename "$PID_CONFIG"): Kp=$KP Ki=$KI Kd=$KD"
+}
+
 # Guard for the FC LIVE run types.  REFUSES in non-interactive mode so systemd
 # cannot arm the FC and take off on boot; otherwise requires a literal "fly".
 _fc_live_guard() {
@@ -777,6 +857,7 @@ show_menu() {
         echo -e "║    3) Pipeline + FC dry-run     (no commands sent)   ║"
         echo -e "║    4) Pipeline + FC LIVE  ⚠ REAL FLIGHT (gimbal ON)  ║"
         echo -e "║    5) Pipeline + FC LIVE  ⚠ REAL FLIGHT (gimbal OFF) ║"
+        echo -e "║    6) Set yaw PID gains in config                    ║"
         echo -e "╠══════════════════════════════════════════════════════╣"
         echo -e "║  TOOLS                                               ║"
         echo -e "║    7) Export TRT engine from .pt weights             ║"
@@ -872,6 +953,9 @@ run_option() {
                 --flight-control-live \
                 --no-gimbal-follow \
                 "${EXTRA[@]}"
+            ;;
+        6)
+            configure_pid_gains
             ;;
         7)
             export_engine

@@ -21,8 +21,10 @@ def build_guidance_computer(
     controller_cfg = dict(guidance_cfg["controller"])
     controller = YawRateController(
         enabled=bool(controller_cfg.get("enabled", True)),
-        mode=str(controller_cfg.get("mode", "yaw_p")),
+        mode=str(controller_cfg.get("mode", "yaw_pid")),
         kp_yaw=float(controller_cfg["kp_yaw"]),
+        ki_yaw=float(controller_cfg.get("ki_yaw", 0.0)),
+        kd_yaw=float(controller_cfg.get("kd_yaw", 0.0)),
         deadband_deg=float(controller_cfg["deadband_deg"]),
         max_yaw_rate_deg_s=float(controller_cfg["max_yaw_rate_deg_s"]),
         max_delta_yaw_rate_deg_s=(

@@ -56,8 +56,10 @@ def _filtering_cfg(**overrides):
 def _controller(max_delta=None):
     return YawRateController(
         enabled=True,
-        mode="yaw_p",
+        mode="yaw_pid",
         kp_yaw=2.0,
+        ki_yaw=0.0,
+        kd_yaw=0.0,
         deadband_deg=1.0,
         max_yaw_rate_deg_s=45.0,
         max_delta_yaw_rate_deg_s=max_delta,
@@ -131,6 +133,35 @@ def test_yaw_controller_deadband_outputs_zero():
 def test_yaw_controller_saturates_at_max_rate():
     ctrl = _controller()
     assert ctrl.compute(100.0, valid=True) == pytest.approx(45.0)
+
+
+def test_yaw_pid_integral_term_accumulates_over_time():
+    ctrl = YawRateController(
+        enabled=True,
+        mode="yaw_pid",
+        kp_yaw=0.0,
+        ki_yaw=1.0,
+        kd_yaw=0.0,
+        deadband_deg=0.0,
+        max_yaw_rate_deg_s=45.0,
+    )
+    assert ctrl.compute(2.0, valid=True, timestamp_s=1.0) == pytest.approx(0.0)
+    assert ctrl.compute(2.0, valid=True, timestamp_s=2.0) == pytest.approx(2.0)
+    assert ctrl.compute(2.0, valid=True, timestamp_s=3.0) == pytest.approx(4.0)
+
+
+def test_yaw_pid_derivative_term_uses_error_rate():
+    ctrl = YawRateController(
+        enabled=True,
+        mode="yaw_pid",
+        kp_yaw=0.0,
+        ki_yaw=0.0,
+        kd_yaw=0.5,
+        deadband_deg=0.0,
+        max_yaw_rate_deg_s=45.0,
+    )
+    assert ctrl.compute(2.0, valid=True, timestamp_s=1.0) == pytest.approx(0.0)
+    assert ctrl.compute(6.0, valid=True, timestamp_s=3.0) == pytest.approx(1.0)
 
 
 def test_invalid_guidance_returns_zero_command():

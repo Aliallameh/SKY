@@ -113,8 +113,10 @@ guidance:
     history_len: 8
   controller:
     enabled: true
-    mode: "yaw_p"
+    mode: "yaw_pid"
     kp_yaw: 2.0
+    ki_yaw: 0.0
+    kd_yaw: 0.0
     deadband_deg: 1.0
     max_yaw_rate_deg_s: 45.0
     max_delta_yaw_rate_deg_s: 20.0

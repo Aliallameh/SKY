@@ -168,6 +168,7 @@ class BearingGuidanceComputer:
             hint.yaw_rate_cmd_deg_s = self._controller.compute(
                 hint.filtered_bearing_error_deg,
                 valid=True,
+                timestamp_s=data.timestamp_s,
             )
         else:
             hint.yaw_rate_cmd_deg_s = self._controller.compute(0.0, valid=False)

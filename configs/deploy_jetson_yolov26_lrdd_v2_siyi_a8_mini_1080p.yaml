@@ -200,10 +200,16 @@ flight_control:
   no_alt_takeoff_confirm_s: 3.0  # if no GLOBAL_POSITION_INT, treat ARM+GUIDED for this long = airborne
   send_hz: 30.0               # fixed-rate MAVLink command transmission
   # ---- yaw command shaping ----
-  max_heading_deg: 15.0       # per-command relative heading clamp (matches their PID limit)
+  # CONDITION_YAW is sent as an ABSOLUTE heading (param4=0): the controller's
+  # yaw offset is added to the live FC heading (from ATTITUDE) and commanded
+  # along the shortest path. This avoids cumulative turning/precession that
+  # repeated relative-yaw ("turn another X deg") commands produced.
+  max_heading_deg: 15.0       # per-command yaw-offset clamp (matches their PID limit)
   yaw_slew_deg_s: 15.0        # CONDITION_YAW slew rate (deg/s)
   yaw_deadband_deg: 1.0       # no yaw command when bearing error within this band
   invert_yaw: false           # flip sign if your FC convention is opposite
+  yaw_abs_min_delta_deg: 1.0  # skip yaw sends when abs-heading change is below this
+  yaw_abs_keepalive_s: 0.5    # ...unless this long has elapsed since the last send
   # ---- failsafes (Phase 3 will extend these) ----
   stale_guidance_timeout_s: 0.5  # zero yaw if no valid hint for this long
   allowed_lock_states: ["TRACKING", "LOCKED", "STRIKE_READY"]

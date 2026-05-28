@@ -1,7 +1,12 @@
 """MAVLink flight-controller link for SkyScouter (ArduPilot copter, Phase 1).
 
 Phase 1 scope (verbatim parity with the drone-control bench code):
-    * Yaw-only tracking via MAV_CMD_CONDITION_YAW (relative heading).
+    * Yaw-only tracking via MAV_CMD_CONDITION_YAW as an ABSOLUTE heading
+      command (param4=0.0).  The controller emits a yaw offset which the
+      link adds to the live FC heading (from ATTITUDE) to form an absolute
+      target heading, commanded along the shortest path.  This avoids the
+      cumulative turning / precession that repeated relative-yaw commands
+      ("turn another X deg") caused when streamed at send_hz.
     * Altitude hold via SET_POSITION_TARGET_LOCAL_NED with type_mask 1531
       (Z position only; X/Y velocity always zero on the wire).
     * Auto sequence: enter GUIDED -> force-arm -> NAV_TAKEOFF to fixed alt
@@ -72,6 +77,8 @@ class FlightCommand:
     guidance_valid: bool
 
     # Computed command (what we WOULD send; for dry_run=True, never reaches FC)
+    # target_heading_deg is the yaw OFFSET (correction); the link adds it to the
+    # live FC heading (fc_yaw_deg) to form the absolute heading actually sent.
     target_heading_deg: float
     yaw_slew_deg_s: float
 
@@ -85,6 +92,9 @@ class FlightCommand:
 
     # Why this command (or its suppression) happened
     reason: List[str] = field(default_factory=list)
+
+    # Live FC heading [0,360) at command time (None until ATTITUDE arrives).
+    fc_yaw_deg: Optional[float] = None
 
     # Was this actually transmitted on the wire?
     sent: bool = False
@@ -145,6 +155,15 @@ class MavlinkFlightLink:
         self._invert_yaw = bool(self._cfg.get("invert_yaw", False))
         self._send_hz = max(1.0, float(self._cfg.get("send_hz", 30.0)))
 
+        # ---- absolute-yaw command shaping (precession fix) ----
+        # The controller produces a yaw *offset* (correction) in degrees.  We
+        # convert it to an ABSOLUTE heading (fc_yaw + offset) before sending, so
+        # CONDITION_YAW means "go to heading H" instead of "turn another H deg".
+        # Tiny target changes are suppressed (with periodic keepalive) to avoid
+        # command-induced jitter/oscillation.
+        self._yaw_abs_min_delta_deg = max(0.0, float(self._cfg.get("yaw_abs_min_delta_deg", 1.0)))
+        self._yaw_abs_keepalive_s = max(0.0, float(self._cfg.get("yaw_abs_keepalive_s", 0.5)))
+
         # ---- failsafe parameters ----
         self._stale_guidance_timeout_s = float(self._cfg.get("stale_guidance_timeout_s", 0.5))
         self._command_delay_s = max(0.0, float(self._cfg.get("command_delay_s", 3.0)))
@@ -185,6 +204,11 @@ class MavlinkFlightLink:
         self._first_takeoff_cmd_time = 0.0
         self._relative_alt_m: Optional[float] = None
         self._seen_global_position = False
+
+        # Absolute-yaw tracking state (precession fix).
+        self._fc_yaw_deg: Optional[float] = None            # latest FC heading [0,360)
+        self._last_sent_abs_yaw_deg: Optional[float] = None  # last commanded heading
+        self._last_sent_abs_yaw_time: float = 0.0
         self._user_override = False
         self._last_guided_req_time = 0.0
         self._last_force_arm_req_time = 0.0
@@ -284,8 +308,9 @@ class MavlinkFlightLink:
 
         The pipeline already produces a fully-processed GuidanceHint with
         validity flags, lock-state context, and (optionally) a filtered
-        bearing error in degrees.  We map it to a relative-yaw command and
-        hand it to the background sender thread for transmission.
+        bearing error in degrees.  We map it to a yaw *offset* (correction in
+        degrees) and hand it to the background sender thread, which converts it
+        to an absolute heading before transmission.
         """
         if not self._enabled or hint is None:
             return
@@ -351,6 +376,7 @@ class MavlinkFlightLink:
                 fc_pilot_override=self._user_override,
                 fc_relative_alt_m=self._relative_alt_m,
                 reason=reasons,
+                fc_yaw_deg=self._fc_yaw_deg,
                 sent=False,  # updated by sender thread for live; False for dry_run
                 dry_run=self._dry_run,
             )
@@ -365,8 +391,9 @@ class MavlinkFlightLink:
             self._sender_thread.join(timeout=0.5)
         if self._master is not None:
             try:
-                # final zero-yaw command for safety
-                self._send_condition_yaw(0.0)
+                # final hold-heading command for safety (offset 0 => hold
+                # current FC heading; force past the change threshold).
+                self._send_condition_yaw(0.0, force=True)
             except Exception:
                 pass
             try:
@@ -543,6 +570,15 @@ class MavlinkFlightLink:
                         4,
                         1,
                     )
+                    # EXTRA1 carries ATTITUDE -> needed for absolute-yaw command
+                    # (we add the controller's yaw offset to the live FC heading).
+                    self._master.mav.request_data_stream_send(
+                        self._target_system,
+                        self._target_component,
+                        mavutil.mavlink.MAV_DATA_STREAM_EXTRA1,
+                        10,  # Hz
+                        1,
+                    )
                 except Exception:
                     pass
                 self._refresh_flight_mode()
@@ -611,6 +647,12 @@ class MavlinkFlightLink:
                 new_armed = bool(base_mode & self._mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
                 self._fc_is_armed = new_armed
                 self._have_fc_armed_state = True
+            except Exception:
+                pass
+        elif mtype == "ATTITUDE":
+            try:
+                # msg.yaw is radians in (-pi, pi]; store as heading in [0, 360).
+                self._fc_yaw_deg = self._wrap360(math.degrees(float(getattr(msg, "yaw", 0.0))))
             except Exception:
                 pass
         elif mtype == "GLOBAL_POSITION_INT":
@@ -780,6 +822,20 @@ class MavlinkFlightLink:
         return max(0.0, self._post_takeoff_settle_s - elapsed)
 
     # ------------------------------------------------------------------
+    # Angle helpers (absolute-yaw conversion)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _wrap360(deg: float) -> float:
+        """Wrap a heading into [0, 360)."""
+        return float(deg) % 360.0
+
+    @staticmethod
+    def _shortest_angle_delta(a: float, b: float) -> float:
+        """Signed shortest angular distance a-b, in (-180, 180]."""
+        return (float(a) - float(b) + 180.0) % 360.0 - 180.0
+
+    # ------------------------------------------------------------------
     # MAVLink command emitters
     # ------------------------------------------------------------------
 
@@ -801,30 +857,60 @@ class MavlinkFlightLink:
                 0.0, 0.0,
             )
 
-    def _send_condition_yaw(self, heading_deg: float) -> None:
-        """MAV_CMD_CONDITION_YAW with relative heading (param4=1.0)."""
+    def _send_condition_yaw(self, yaw_offset_deg: float, *, force: bool = False) -> None:
+        """MAV_CMD_CONDITION_YAW as an ABSOLUTE heading command (param4=0.0).
+
+        ``yaw_offset_deg`` is the controller's yaw *correction* in degrees
+        (positive = turn toward target).  We add it to the latest FC heading to
+        obtain an absolute target heading in [0, 360) and command the FC to slew
+        there along the shortest path (direction=0).  This is the precession
+        fix: a relative command (param4=1.0) means "turn another X deg" and
+        accumulates into continuous rotation when streamed at send_hz, whereas
+        an absolute command means "go to heading H" and settles.
+
+        Tiny target changes are suppressed unless a keepalive is due, to avoid
+        command-induced jitter.  Pass ``force=True`` to always transmit (used
+        for the final safety command on close()).
+        """
         if self._master is None or self._mavutil is None:
             return
-        heading = float(heading_deg)
-        speed = self._yaw_slew_deg_s
-        direction = 1
-        if heading < 0.0:
-            heading = abs(heading)
-            direction = -1
-        if heading == 0.0:
-            speed = 0.0
+
+        offset = float(yaw_offset_deg)
+
+        # Resolve absolute target heading from current FC yaw + offset.
+        if self._fc_yaw_deg is not None:
+            target_abs = self._wrap360(self._fc_yaw_deg + offset)
+        elif self._last_sent_abs_yaw_deg is not None:
+            # FC heading unknown yet: hold the last commanded heading (safe hold).
+            target_abs = self._last_sent_abs_yaw_deg
+        else:
+            # No yaw telemetry and nothing commanded yet -> nothing safe to send.
+            return
+
+        now_m = time.monotonic()
+
+        # Command-change threshold: skip near-duplicate updates unless a
+        # keepalive interval has elapsed (or the caller forces the send).
+        if not force and self._last_sent_abs_yaw_deg is not None:
+            delta = abs(self._shortest_angle_delta(target_abs, self._last_sent_abs_yaw_deg))
+            recent = (now_m - self._last_sent_abs_yaw_time) < self._yaw_abs_keepalive_s
+            if delta < self._yaw_abs_min_delta_deg and recent:
+                return
+
         with self._mav_send_lock:
             self._master.mav.command_long_send(
                 self._target_system,
                 self._target_component,
                 self._mavutil.mavlink.MAV_CMD_CONDITION_YAW,
                 0,
-                heading,
-                speed,
-                float(direction),
-                1.0,  # relative yaw
+                target_abs,             # param1: absolute heading [0,360)
+                self._yaw_slew_deg_s,   # param2: slew rate deg/s
+                0.0,                    # param3: direction (0 = shortest path)
+                0.0,                    # param4: 0 = absolute heading
                 0.0, 0.0, 0.0,
             )
+        self._last_sent_abs_yaw_deg = target_abs
+        self._last_sent_abs_yaw_time = now_m
 
     # ------------------------------------------------------------------
     # Diagnostics
@@ -834,11 +920,13 @@ class MavlinkFlightLink:
         if not self._enabled:
             return "FC: disabled"
         if self._dry_run:
-            return f"FC: DRY-RUN (alt={self._guided_alt_m:.1f}m max_yaw={self._max_heading_deg:.0f}deg)"
+            return f"FC: DRY-RUN ABS_YAW (alt={self._guided_alt_m:.1f}m max_yaw={self._max_heading_deg:.0f}deg)"
         if not self._connected:
             return f"FC: not connected ({self._last_error})"
         mode = self._flight_mode or "?"
         armed = "ARMED" if self.is_armed() else "DISARMED"
         ovr = " [PILOT]" if self._user_override else ""
         rel = f" alt={self._relative_alt_m:.1f}m" if self._relative_alt_m is not None else ""
-        return f"FC: {mode} {armed}{rel}{ovr} tx={self._tx_count}"
+        yaw_now = f" yaw={self._fc_yaw_deg:.0f}" if self._fc_yaw_deg is not None else " yaw=?"
+        cmd = f"->{self._last_sent_abs_yaw_deg:.0f}" if self._last_sent_abs_yaw_deg is not None else ""
+        return f"FC: {mode} {armed}{rel}{ovr} ABS_YAW{yaw_now}{cmd} tx={self._tx_count}"

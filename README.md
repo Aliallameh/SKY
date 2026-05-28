@@ -463,6 +463,29 @@ Next product work:
 5. Evaluate whether FP16 engine degrades recall vs FP32 at target range.
 6. Keep false-lock negatives at zero.
 
+## Experimental flight-control link (opt-in, off by default)
+
+The repo contains a Phase-1 ArduPilot MAVLink link (`skyscouter/flight/mavlink_link.py`).
+It is **disabled and dry-run by default** (`flight_control.enabled: false`,
+`dry_run: true`) and sends nothing on the wire unless explicitly opted in.
+
+Yaw tracking is commanded as an **absolute heading**: the controller produces a
+yaw *offset* (PID correction in degrees), and the link adds it to the current FC
+heading (read from `ATTITUDE`) to form an absolute `MAV_CMD_CONDITION_YAW` target
+(`param4=0`), commanded along the shortest path. This replaces the earlier
+relative-yaw command (`param4=1`, "turn another X deg"), which accumulated when
+streamed at `send_hz` and produced cumulative turning / precession.
+
+Tunables (in `flight_control:`):
+
+- `yaw_abs_min_delta_deg` (default `1.0`) — skip yaw sends when the absolute
+  heading change is below this threshold.
+- `yaw_abs_keepalive_s` (default `0.5`) — send anyway once this long has elapsed
+  since the last yaw command, so near-steady targets still get periodic refreshes.
+
+Together these suppress jitter from tiny target changes while keeping the command
+fresh.
+
 ## Safety Rules
 
 - No autonomous chase.

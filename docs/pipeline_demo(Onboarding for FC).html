@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkyScouter · Jetson Live Camera Pipeline</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:#0d1117;color:#c9d1d9;font:14px/1.6 -apple-system,"Segoe UI","Inter",sans-serif}
+code{font-family:"SF Mono","Fira Code","Cascadia Code",monospace;font-size:12px;background:rgba(88,166,255,.1);color:#79c0ff;border-radius:3px;padding:0 5px}
+
+/* PAGE */
+.page{max-width:1040px;margin:0 auto;padding:0 24px 80px}
+
+/* HERO */
+.hero{background:linear-gradient(160deg,#0d1117 0%,#161b22 100%);border-bottom:1px solid #21262d;padding:52px 40px 40px;text-align:center;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 70% 50% at 50% 0%,rgba(88,166,255,.07) 0%,transparent 70%);pointer-events:none}
+.eyebrow{display:inline-block;background:rgba(88,166,255,.1);border:1px solid rgba(88,166,255,.25);color:#58a6ff;border-radius:20px;padding:3px 14px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px}
+.hero h1{font-size:32px;font-weight:700;letter-spacing:-.5px;line-height:1.2;margin-bottom:10px}
+.hero h1 em{font-style:normal;color:#58a6ff}
+.hero p{color:#8b949e;font-size:14px;max-width:640px;margin:0 auto 18px}
+.tags{display:flex;justify-content:center;flex-wrap:wrap;gap:6px}
+.tag{font-size:11px;font-weight:500;padding:3px 10px;border-radius:4px;border:1px solid}
+.tb{color:#58a6ff;border-color:rgba(88,166,255,.3);background:rgba(88,166,255,.08)}
+.tg{color:#3fb950;border-color:rgba(63,185,80,.3);background:rgba(63,185,80,.08)}
+.ty{color:#d29922;border-color:rgba(210,153,34,.3);background:rgba(210,153,34,.08)}
+.tp{color:#bc8cff;border-color:rgba(188,140,255,.3);background:rgba(188,140,255,.08)}
+.tm{color:#8b949e;border-color:#21262d;background:transparent}
+
+/* SECTION */
+.section{margin-top:52px}
+.sec-hd{display:flex;align-items:flex-start;gap:12px;margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid #21262d}
+.sec-num{min-width:28px;height:28px;border-radius:50%;background:#58a6ff;color:#000;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.sec-hd h2{font-size:18px;font-weight:600}
+.sec-hd p{color:#8b949e;font-size:12px;margin-top:2px}
+
+/* CARDS */
+.card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:18px 22px}
+.card-title{font-size:14px;font-weight:600;margin-bottom:4px}
+.card-sub{font-size:11px;color:#8b949e;margin-bottom:12px}
+.ct{border-top:3px solid #39c5cf}.cp{border-top:3px solid #bc8cff}
+.cy{border-top:3px solid #d29922}.co{border-top:3px solid #f0883e}
+.cb{border-top:3px solid #58a6ff}.cg{border-top:3px solid #3fb950}
+.cr{border-top:3px solid #f85149}.cm{border-top:3px solid #444d56}
+
+/* GRIDS */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+
+/* KV ROWS */
+.kv{margin-top:8px}
+.kvr{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid rgba(33,38,45,.8);font-size:12px;line-height:1.4}
+.kvr:last-child{border-bottom:none}
+.kk{color:#8b949e;min-width:130px;flex-shrink:0}
+.kv2{color:#c9d1d9}
+
+/* PIPELINE */
+.pipeline{max-width:840px;margin:0 auto}
+.pcard{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:20px 24px}
+.pcard-hd{display:flex;align-items:flex-start;gap:14px;margin-bottom:14px}
+.pnum{min-width:28px;height:28px;border-radius:6px;background:#21262d;font-size:12px;font-weight:700;color:#8b949e;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+.ptitle{font-size:15px;font-weight:600;line-height:1.3}
+.psub{font-size:11px;color:#8b949e;margin-top:2px}
+.pbody{display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:12px}
+.pcol h4{font-size:10px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.pcol ul{list-style:none;display:flex;flex-direction:column;gap:3px}
+.pcol li{color:#c9d1d9;padding-left:12px;position:relative;line-height:1.5}
+.pcol li::before{content:"·";position:absolute;left:0;color:#444d56}
+
+/* CONNECTOR */
+.conn{display:flex;flex-direction:column;align-items:center;padding:5px 0;gap:3px}
+.clbl{font-family:"SF Mono","Fira Code",monospace;font-size:10px;color:#6e7681;background:#161b22;border:1px solid #21262d;border-radius:3px;padding:1px 8px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.cline{width:1.5px;height:16px;background:linear-gradient(to bottom,rgba(68,77,86,.4),rgba(68,77,86,.9))}
+
+/* CLOSED LOOP */
+.loop{background:rgba(63,185,80,.07);border:1px solid rgba(63,185,80,.25);border-radius:8px;padding:10px 16px;text-align:center;font-size:12px;color:#3fb950;font-weight:600;margin:6px 0}
+
+/* NOTE */
+.note{border-left:3px solid #21262d;padding:6px 14px;font-size:12px;color:#8b949e;margin:10px 0;border-radius:0 4px 4px 0;background:rgba(255,255,255,.02)}
+.note strong{color:#c9d1d9}
+.nb{border-color:rgba(88,166,255,.4)}
+.ng{border-color:rgba(63,185,80,.4)}
+.ny{border-color:rgba(210,153,34,.4)}
+
+/* ARTIFACTS */
+.artifact{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:14px 16px}
+.aname{font-family:"SF Mono","Fira Code",monospace;font-size:11px;color:#58a6ff;margin-bottom:5px;font-weight:600}
+.adesc{font-size:11px;color:#8b949e;line-height:1.5}
+.awhen{font-size:10px;color:#444d56;margin-top:4px}
+
+/* CONFIG TABLE */
+.cfg{width:100%;border-collapse:collapse;font-size:12px}
+.cfg th{text-align:left;padding:7px 12px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#8b949e;background:rgba(255,255,255,.03);border-bottom:1px solid #21262d}
+.cfg td{padding:7px 12px;border-bottom:1px solid rgba(33,38,45,.7);vertical-align:top;color:#c9d1d9}
+.cfg tr:hover td{background:rgba(255,255,255,.02)}
+.cfg .new{color:#3fb950}
+.cfg .old{color:#6e7681;text-decoration:line-through}
+
+/* MODULE MAP */
+.modmap{background:#161b22;border:1px solid #21262d;border-radius:10px;overflow:hidden}
+.modrow{display:flex;gap:12px;padding:7px 20px;border-bottom:1px solid rgba(33,38,45,.6);font-size:12px;align-items:baseline}
+.modrow:last-child{border-bottom:none}
+.modrow:hover{background:rgba(255,255,255,.02)}
+.mpkg{font-family:"SF Mono","Fira Code",monospace;font-size:11px;color:#79c0ff;min-width:290px;flex-shrink:0}
+.mdesc{color:#8b949e}
+
+/* FOOTER */
+.footer{border-top:1px solid #21262d;padding:20px 40px;text-align:center;font-size:12px;color:#444d56;margin-top:60px}
+
+/* RESPONSIVE */
+@media(max-width:720px){.g3,.g4{grid-template-columns:1fr 1fr}.pbody{grid-template-columns:1fr}.hero h1{font-size:22px}.page{padding:0 16px 60px}}
+@media(max-width:500px){.g2,.g3,.g4{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ HERO ═══════════════ -->
+<div class="hero">
+  <div class="eyebrow">Sprint Demo · Team Onboarding Reference</div>
+  <h1>SkyScouter — <em>Jetson Live Camera Pipeline</em></h1>
+  <p>How a live camera feed from the <strong>SIYI A8 Mini</strong> becomes a locked, tracked target — and how that same target then steers <strong>two actuators in real time</strong>: the gimbal camera (UDP) and the <strong>aircraft itself</strong> via the ArduPilot flight controller (MAVLink). Built to run on a Jetson at the edge, on the drone, no cloud involved.</p>
+  <div class="tags">
+    <span class="tag tb">YOLOv26n TensorRT FP32 · imgsz 1024</span>
+    <span class="tag ty">Kalman + Inter-frame LK</span>
+    <span class="tag tg">SIYI A8 Mini Gimbal Camera</span>
+    <span class="tag tp">9-State Lock FSM</span>
+    <span class="tag tb">Pixhawk 6X · ArduPilot · MAVLink</span>
+    <span class="tag tm">Jetson Orin Nano Super</span>
+    <span class="tag tm">1920 × 1080 · 30 fps</span>
+  </div>
+  <p style="margin-top:14px;font-size:12px;color:#6e7681">For the flight-controller / drone engineer: jump to <a href="#fc-migration" style="color:#58a6ff;text-decoration:none;font-weight:600">§ FC — hand_track.py → SkyScouter migration map ↓</a></p>
+</div>
+
+<div class="page">
+
+<!-- ═══════════════ HARDWARE ═══════════════ -->
+<div class="section">
+  <div class="sec-hd">
+    <div class="sec-num" style="background:#39c5cf">H</div>
+    <div><h2>Hardware Overview</h2><p>Four physical components — the camera/gimbal LAN at 192.168.144.x, plus the flight controller on USB serial</p></div>
+  </div>
+  <div class="g2">
+
+    <div class="card ct">
+      <div class="card-title">SIYI A8 Mini</div>
+      <div class="card-sub">Zoom Gimbal Camera — <strong>dual role: source + actuator</strong></div>
+      <div class="kv">
+        <div class="kvr"><span class="kk">IP address</span><span class="kv2"><code>192.168.144.25</code></span></div>
+        <div class="kvr"><span class="kk">Video stream</span><span class="kv2">RTSP H.264 · port 8554</span></div>
+        <div class="kvr"><span class="kk">RTSP URL</span><span class="kv2"><code>rtsp://192.168.144.25:8554/main.264</code></span></div>
+        <div class="kvr"><span class="kk">Gimbal control</span><span class="kv2">SIYI UDP · port 37260</span></div>
+        <div class="kvr"><span class="kk">Resolution</span><span class="kv2">1920 × 1080 @ 30 fps</span></div>
+        <div class="kvr"><span class="kk">HFOV</span><span class="kv2">~81° at widest zoom</span></div>
+      </div>
+    </div>
+
+    <div class="card cb">
+      <div class="card-title">Jetson Orin Nano Super</div>
+      <div class="card-sub">Edge inference &amp; control node</div>
+      <div class="kv">
+        <div class="kvr"><span class="kk">GPU</span><span class="kv2">Ampere — 1024 CUDA cores</span></div>
+        <div class="kvr"><span class="kk">Stack</span><span class="kv2">Ubuntu 22.04, JetPack 6</span></div>
+        <div class="kvr"><span class="kk">TensorRT</span><span class="kv2">10.3.0, CUDA 12.6</span></div>
+        <div class="kvr"><span class="kk">Power mode</span><span class="kv2">15W flight / MAXN bench</span></div>
+        <div class="kvr"><span class="kk">Pipeline FPS</span><span class="kv2">~4–7 fps (YOLOv26n imgsz 1024, measured)</span></div>
+        <div class="kvr"><span class="kk">Operator view</span><span class="kv2">GStreamer HDMI · or MJPEG over WiFi (headless)</span></div>
+      </div>
+    </div>
+
+    <div class="card cb">
+      <div class="card-title">Pixhawk 6X — ArduPilot Flight Controller</div>
+      <div class="card-sub">The aircraft autopilot — <strong>new in this integration</strong></div>
+      <div class="kv">
+        <div class="kvr"><span class="kk">Link</span><span class="kv2">USB serial → Jetson · <code>/dev/ttyACM0</code></span></div>
+        <div class="kvr"><span class="kk">Alt link</span><span class="kv2">Jetson UART <code>/dev/ttyTHS1</code> (telemetry radio)</span></div>
+        <div class="kvr"><span class="kk">Baud</span><span class="kv2">115200 (USB-ACM) · 921600 (radio)</span></div>
+        <div class="kvr"><span class="kk">Protocol</span><span class="kv2">MAVLink v2 via <code>pymavlink</code></span></div>
+        <div class="kvr"><span class="kk">Firmware</span><span class="kv2">ArduPilot Copter · GUIDED mode</span></div>
+        <div class="kvr"><span class="kk">Commands sent</span><span class="kv2">SET_MODE, ARM, NAV_TAKEOFF, CONDITION_YAW, alt-hold</span></div>
+      </div>
+    </div>
+
+    <div class="card cm">
+      <div class="card-title">Network &amp; Connections</div>
+      <div class="card-sub">Camera/gimbal on Ethernet · autopilot on USB serial</div>
+      <div class="kv">
+        <div class="kvr"><span class="kk">Video in</span><span class="kv2">RTSP/TCP → Jetson (threaded reader)</span></div>
+        <div class="kvr"><span class="kk">Gimbal cmd out</span><span class="kv2">UDP → SIYI :37260 (10 Hz, SIYI SDK v2)</span></div>
+        <div class="kvr"><span class="kk">Flight cmd out</span><span class="kv2">MAVLink → Pixhawk on serial (30 Hz fixed-rate)</span></div>
+        <div class="kvr"><span class="kk">Field uplink</span><span class="kv2">Starlink WiFi → Jetson (SSH / operator view); no internet at field</span></div>
+        <div class="kvr"><span class="kk">Video flags</span><span class="kv2">No buffering, low delay — always get the latest frame</span></div>
+      </div>
+    </div>
+
+  </div>
+  <div class="note ng" style="margin-top:10px">
+    <strong>Closed loop — now two actuators:</strong> The SIYI A8 Mini is simultaneously the <strong>video source</strong> (RTSP) and a <strong>gimbal actuator</strong> (UDP rotation commands). The <strong>Pixhawk 6X</strong> is the second actuator — the same per-frame <code>GuidanceHint</code> (its <code>bearing_error_deg</code>) is mapped to a relative-yaw MAVLink command so the <strong>whole aircraft</strong> rotates to face the target. Both loops minimise the same pixel error between target and frame centre.
+  </div>
+</div>
+
+<!-- ═══════════════ A. PRE-FLIGHT ═══════════════ -->
+<div class="section">
+  <div class="sec-hd">
+    <div class="sec-num" style="background:#f0883e;color:#000">A</div>
+    <div><h2>Pre-Flight: Model Preparation</h2><p>Train on workstation → copy .pt to Jetson → export TensorRT engine on the target Jetson (not portable)</p></div>
+  </div>
+  <div class="g2">
+
+    <div class="card cr">
+      <div class="card-title">Model Lineage</div>
+      <div class="card-sub">Two generations of detector on this branch</div>
+      <div class="kv">
+        <div class="kvr"><span class="kk" style="color:#3fb950">Current model</span><span class="kv2" style="color:#3fb950;font-weight:600">YOLOv26n (nano)</span></div>
+        <div class="kvr"><span class="kk">Training data</span><span class="kv2">LRDDv2 + Anti-UAV300 RGB, single class "drone"</span></div>
+        <div class="kvr"><span class="kk">Input size</span><span class="kv2"><code>1024 × 1024</code> (384 collapsed drone to 20×12 px @ 1.5% recall; 1024 gives ~53×32 px bbox, well above the stride-8 head)</span></div>
+        <div class="kvr"><span class="kk">Precision</span><span class="kv2">FP32 engine (built natively on this Jetson)</span></div>
+        <div class="kvr"><span class="kk">Engine file</span><span class="kv2"><code>data/models/yolov26_lrdd_v2_img1024/best.engine</code></span></div>
+      </div>
+      <div class="kv" style="margin-top:10px;border-top:1px solid #21262d;padding-top:8px">
+        <div class="kvr"><span class="kk" style="color:#6e7681">Previous model</span><span class="kv2 old">YOLO11s Stage 2 multiclass</span></div>
+        <div class="kvr"><span class="kk" style="color:#6e7681">Classes</span><span class="kv2 old">drone, bird, airplane, drone_candidate (4 classes)</span></div>
+        <div class="kvr"><span class="kk" style="color:#6e7681">Input size</span><span class="kv2 old">1024 × 1024</span></div>
+      </div>
+    </div>
+
+    <div class="card co">
+      <div class="card-title">TensorRT Export</div>
+      <div class="card-sub"><code>scripts/export_tensorrt.py</code> — must run ON the target Jetson</div>
+      <div class="kv">
+        <div class="kvr"><span class="kk">Command flags</span><span class="kv2"><code>--weights best.pt --imgsz 1024 --batch 1</code></span></div>
+        <div class="kvr"><span class="kk">Format</span><span class="kv2">TensorRT engine, FP32 precision (static 1024 shape)</span></div>
+        <div class="kvr"><span class="kk">Device</span><span class="kv2">CUDA 0 (Ampere GPU on Jetson)</span></div>
+        <div class="kvr"><span class="kk">Output</span><span class="kv2"><code>best.engine</code> + <code>.export_manifest.json</code> (SHA-256)</span></div>
+        <div class="kvr"><span class="kk">Load check</span><span class="kv2">Script runs one dummy inference after export to verify</span></div>
+        <div class="kvr"><span class="kk">Portability</span><span class="kv2" style="color:#f85149">Locked to THIS Jetson's JetPack + TRT + CUDA</span></div>
+      </div>
+      <div class="note" style="margin-top:10px;font-size:11px">
+        <strong>Warning:</strong> Re-export if JetPack, TensorRT, or CUDA version changes. Engines from other machines will silently fail.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════ B. RUNTIME PIPELINE ═══════════════ -->
+<div class="section">
+  <div class="sec-hd">
+    <div class="sec-num">B</div>
+    <div><h2>Real-Time Runtime Pipeline — every frame</h2><p><code>run_jetson_live_pipeline.py</code> → <code>run_pipeline.py</code> → <code>skyscouter/pipeline.py</code> main loop</p></div>
+  </div>
+
+  <div class="pipeline">
+
+    <!-- 1. SIYI A8 Mini Camera -->
+    <div class="pcard ct">
+      <div class="pcard-hd">
+        <div class="pnum" style="background:rgba(57,197,207,.15);color:#39c5cf">1</div>
+        <div>
+          <div class="ptitle">SIYI A8 Mini — RTSP Frame Source</div>
+          <div class="psub"><code>skyscouter/io/rtsp_stream_source.py</code> · RtspStreamSource · source.type = "siyi_a8_mini"</div>
+        </div>
+      </div>
+      <div class="pbody">
+        <div class="pcol">
+          <h4>Connection</h4>
+          <ul>
+            <li>URL: <code>rtsp://192.168.144.25:8554/main.264</code></li>
+            <li>Transport: TCP (reliable, low-jitter)</li>
+            <li>FFmpeg: <code>fflags=nobuffer, low_delay</code></li>
+            <li>Auto-reconnect: 1 s delay on stream drop</li>
+            <li>First-frame timeout: 20 s (fail loudly if no signal)</li>
+          </ul>
+        </div>
+        <div class="pcol">
+          <h4>Threading &amp; Output: Frame</h4>
+          <ul>
+            <li>Background reader thread grabs frames continuously</li>
+            <li>Pipeline always gets the <em>newest</em> decoded frame</li>
+            <li>No lag buildup during slow inference</li>
+            <li><code>image_bgr</code> — np.ndarray [1080,1920,3]</li>
+            <li><code>frame_index, capture_time_s, timestamp_utc</code></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="conn">
+      <span class="clbl">Frame { image_bgr, frame_index, capture_time_s, timestamp_utc, width=1920, height=1080 }</span>
+      <div class="cline"></div>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="display:block"><polygon points="0,0 12,0 6,7" fill="#444d56"/></svg>
+    </div>
+
+    <!-- 2. Detector -->
+    <div class="pcard cp">
+      <div class="pcard-hd">
+        <div class="pnum" style="background:rgba(188,140,255,.15);color:#bc8cff">2</div>
+        <div>
+          <div class="ptitle">YOLOv26n Detector — TensorRT FP32 · imgsz 1024</div>
+          <div class="psub"><code>skyscouter/perception/yolo_ultralytics.py</code> · UltralyticsYoloDetector</div>
+        </div>
+      </div>
+      <div class="pbody">
+        <div class="pcol">
+          <h4>Model</h4>
+          <ul>
+            <li>Engine: <code>yolov26_lrdd_v2_img1024/best.engine</code></li>
+            <li>Input: 1920×1080 letterboxed → 1024×1024</li>
+            <li>Precision: FP32 on Ampere GPU (CUDA 0)</li>
+            <li>Class: single class 0 = "drone"</li>
+            <li>Warmup: one dummy inference before main loop</li>
+          </ul>
+        </div>
+        <div class="pcol">
+          <h4>Thresholds &amp; Output</h4>
+          <ul>
+            <li>Confidence threshold: <code>≥ 0.25</code></li>
+            <li>IoU threshold: <code>≤ 0.45</code></li>
+            <li><code>keep_class_ids = [0]</code> (drone only)</li>
+            <li>Output: <code>List[Detection]</code></li>
+            <li>Each: <code>x, y, w, h, confidence, class_label</code></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="conn">
+      <span class="clbl">List[Detection { x, y, w, h, confidence, class_label="drone" }]</span>
+      <div class="cline"></div>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="display:block"><polygon points="0,0 12,0 6,7" fill="#444d56"/></svg>
+    </div>
+
+    <!-- 3. Tracker -->
+    <div class="pcard cy">
+      <div class="pcard-hd">
+        <div class="pnum" style="background:rgba(210,153,34,.15);color:#d29922">3</div>
+        <div>
+          <div class="ptitle">Single-Target Tracker — Kalman + LK Optical Flow</div>
+          <div class="psub"><code>skyscouter/tracking/single_target_kalman_lk.py</code> · SingleTargetKalmanLKTracker</div>
+        </div>
+      </div>
+      <div class="pbody">
+        <div class="pcol">
+          <h4>Four-Layer Stack</h4>
+          <ul>
+            <li><strong>Inter-frame LK thread</strong> — <code>tracking/inter_frame_lk.py</code>. Runs LK on <em>every decoded camera frame</em> (~30 fps, 5–10 px steps) in a background thread, not just on YOLO frames. This is the "never loses it" layer — adapted from the engineer's click-to-track code, but driven autonomously by the detector instead of a mouse click</li>
+            <li><strong>Kalman filter</strong> — 8D state: cx, cy, w, h, vx, vy, vw, vh. Constant-velocity model</li>
+            <li><strong>Per-YOLO LK</strong> — back-checked Lucas-Kanade bridges the gap between detector hits (5–7 fps, 30–50 px steps)</li>
+            <li><strong>Appearance model</strong> — HSV-HS histogram 24×16 bins, EMA update, Bhattacharyya similarity</li>
+            <li>Association score: IoU + center dist + area + appearance</li>
+          </ul>
+        </div>
+        <div class="pcol">
+          <h4>Key Params (current config — tuned for tiny, fast targets)</h4>
+          <ul>
+            <li>Reacquisition radius: <code>450 px</code> <span style="color:#6e7681">(was 320)</span></li>
+            <li>Max prediction-only frames: <code>12</code> <span style="color:#6e7681">(was 5; ~2 s coast)</span></li>
+            <li>Track buffer: <code>60 frames</code> <span style="color:#6e7681">(was 36)</span></li>
+            <li>LK min points: <code>4</code> <span style="color:#6e7681">(was 6; tiny targets)</span></li>
+            <li>Min confirmed hits: <code>3</code></li>
+            <li>Output: <code>List[Track]</code> → pick_primary_track()</li>
+          </ul>
+        </div>
+      </div>
+      <div class="note nb" style="margin:14px 0 0">
+        <strong>How the inter-frame LK is wired:</strong> the RTSP source calls <code>register_frame_observer(tracker.feed_inter_frame)</code> so every decoded frame is fed (non-blocking, drops oldest when its queue is full) to the LK thread; the tracker prefers that thread's latest position over the per-YOLO LK, and re-syncs both whenever a real YOLO detection lands. Measured wins: ~3× time in LOCKED, +52% detection rate, 2.8× track lifetime.
+      </div>
+    </div>
+
+    <div class="conn">
+      <span class="clbl">primary Track { track_id, detection, hits, time_since_update, center_history[64] }</span>
+      <div class="cline"></div>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="display:block"><polygon points="0,0 12,0 6,7" fill="#444d56"/></svg>
+    </div>
+
+    <!-- 4. Lock FSM -->
+    <div class="pcard co">
+      <div class="pcard-hd">
+        <div class="pnum" style="background:rgba(240,136,62,.15);color:#f0883e">4</div>
+        <div>
+          <div class="ptitle">Lock State Machine</div>
+          <div class="psub"><code>skyscouter/lock/state_machine.py</code> · one independent instance per detected target</div>
+        </div>
+      </div>
+      <div class="pbody">
+        <div class="pcol">
+          <h4>Inputs (per frame)</h4>
+          <ul>
+            <li><code>is_track_alive</code>, <code>is_track_confirmed</code></li>
+            <li><code>class_label</code> — normalized: drone / bird / unknown</li>
+            <li><code>class_confidence</code>, <code>lock_quality</code> [0–1]</li>
+            <li><code>bbox_frame_fraction</code> — target size in frame</li>
+            <li><code>bbox_center_norm_distance</code> — how centered</li>
+            <li>Any <code>fault_flag</code> → immediate ABORTED</li>
+          </ul>
+        </div>
+        <div class="pcol">
+          <h4>Output: LockDecision</h4>
+          <ul>
+            <li><code>lock_state</code> — one of 9 states</li>
+            <li><code>guidance_valid</code> — TRUE only in LOCKED / STRIKE_READY</li>
+            <li><code>lock_quality</code>, <code>fault_flags</code>, <code>reason</code></li>
+            <li>TRACKING→LOCKED: 5 consecutive frames passing gates</li>
+            <li>LOCKED→STRIKE_READY: centered + stable ≥ 0.5 s</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="conn">
+      <span class="clbl">LockDecision { lock_state, guidance_valid=TRUE only in LOCKED/STRIKE_READY }</span>
+      <div class="cline"></div>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="display:block"><polygon points="0,0 12,0 6,7" fill="#444d56"/></svg>
+    </div>
+
+    <!-- 5+6. Target State + Guidance -->
+    <div class="g2" style="margin-bottom:0">
+      <div class="pcard cb" style="border-radius:10px">
+        <div class="pcard-hd">
+          <div class="pnum" style="background:rgba(88,166,255,.15);color:#58a6ff">5</div>
+          <div><div class="ptitle">Target State Builder</div><div class="psub"><code>pipeline.py · _build_target_state()</code></div></div>
+        </div>
+        <div style="font-size:12px;color:#8b949e;line-height:1.6">
+          Packages everything known about the target into one structured record per frame.<br><br>
+          <strong style="color:#c9d1d9">Two hard rules enforced here:</strong><br>
+          &nbsp;· <code>guidance_valid</code> can only be true in LOCKED or STRIKE_READY<br>
+          &nbsp;· Any active fault immediately forces it false<br><br>
+          Written to <code>target_states.jsonl</code> every frame — this is what the flight controller reads.
+        </div>
+      </div>
+      <div class="pcard cb" style="border-radius:10px">
+        <div class="pcard-hd">
+          <div class="pnum" style="background:rgba(88,166,255,.15);color:#58a6ff">6</div>
+          <div><div class="ptitle">Guidance Computer</div><div class="psub"><code>guidance/bearing.py + filtering.py + controller.py</code></div></div>
+        </div>
+        <div style="font-size:12px;color:#8b949e;line-height:1.7">
+          Measures how far the drone is from the frame center, converts that pixel gap into a real angle using the camera's field of view, smooths out jitter with a filter, and predicts where the drone will be <strong style="color:#c9d1d9">200 ms ahead</strong> so the gimbal leads it rather than chasing it.<br><br>
+          Outputs a rotation speed for the gimbal. Active from TRACKING onwards.
+        </div>
+      </div>
+    </div>
+
+    <div class="conn">
+      <span class="clbl">GuidanceHint { bearing_error_deg, yaw_rate_cmd_deg_s, pixel_error_px, filtered_bearing_error_deg }</span>
+      <div class="cline"></div>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="display:block"><polygon points="0,0 12,0 6,7" fill="#444d56"/></svg>
+    </div>
+
+    <!-- 7. Gimbal Follow -->
+    <div class="pcard cg">
+      <div class="pcard-hd">
+        <div class="pnum" style="background:rgba(63,185,80,.15);color:#3fb950">7</div>
+        <div>
+          <div class="ptitle">Gimbal Follow Controller → SIYI A8 Mini</div>
+          <div class="psub"><code>skyscouter/gimbal/follow_controller.py</code> + <code>gimbal/siyi_client.py</code></div>
+        </div>
+      </div>
+      <div class="pbody">
+        <div class="pcol">
+          <h4>Rate Limiting &amp; Safety</h4>
+          <ul>
+            <li>Max command rate: <code>10 Hz</code></li>
+            <li>Deadband X: <code>60 px</code>, Y: <code>45 px</code></li>
+            <li>Active states: TRACKING, LOCKED, STRIKE_READY</li>
+            <li>Stop-after-lost: <code>0.25 s</code></li>
+            <li><code>dry_run=true</code> logs but sends no UDP</li>
+          </ul>
+        </div>
+        <div class="pcol">
+          <h4>Command → SIYI :37260 (UDP)</h4>
+          <ul>
+            <li>Speaks SIYI SDK v2 — yaw and pitch speed in one packet</li>
+            <li>Gain: yaw <code>15</code>, pitch <code>12</code> (tunable in config)</li>
+            <li>Clamped: yaw <code>±18</code>, pitch <code>±15</code> max speed</li>
+            <li>Every command logged to <code>gimbal_follow_commands.jsonl</code></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="note nb" style="margin:6px 0">
+      The <strong>same <code>GuidanceHint</code></strong> that drives the gimbal (stage 7) is <em>also</em> handed to the flight controller (stage 8). One vision pipeline, two independent actuators — neither knows the other exists.
+    </div>
+
+    <div class="conn">
+      <span class="clbl">GuidanceHint { bearing_error_deg, filtered_bearing_error_deg } + LockDecision.lock_state</span>
+      <div class="cline"></div>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="display:block"><polygon points="0,0 12,0 6,7" fill="#444d56"/></svg>
+    </div>
+
+    <!-- 8. Flight Controller -->
+    <div class="pcard cb">
+      <div class="pcard-hd">
+        <div class="pnum" style="background:rgba(88,166,255,.15);color:#58a6ff">8</div>
+        <div>
+          <div class="ptitle">MAVLink Flight Link → Pixhawk 6X (ArduPilot)</div>
+          <div class="psub"><code>skyscouter/flight/mavlink_link.py</code> · MavlinkFlightLink &nbsp;|&nbsp; built by <code>flight/factory.py</code> &nbsp;|&nbsp; <strong>Phase 1: yaw-only + alt-hold</strong></div>
+        </div>
+      </div>
+      <div class="pbody">
+        <div class="pcol">
+          <h4>What it consumes</h4>
+          <ul>
+            <li><code>consume(hint)</code> — gates on <code>guidance_valid</code> + lock_state ∈ {TRACKING, LOCKED, STRIKE_READY}</li>
+            <li>Reads <code>filtered_bearing_error_deg</code> (falls back to <code>bearing_error_deg</code>): + = target is right of centre</li>
+            <li>Applies yaw deadband (1°), then clamps to <code>±max_heading_deg</code> (15°) per command</li>
+            <li>Stale-guidance timeout 0.5 s → commands zero yaw (hold heading)</li>
+          </ul>
+        </div>
+        <div class="pcol">
+          <h4>What it sends (30 Hz sender thread)</h4>
+          <ul>
+            <li>Auto-sequence: SET_MODE → <strong>GUIDED</strong> → force-ARM → NAV_TAKEOFF → settle → stream</li>
+            <li>Per tick: <code>SET_POSITION_TARGET_LOCAL_NED</code> (alt-hold) + <code>CONDITION_YAW</code> (relative)</li>
+            <li>ArduPilot magic numbers: force-arm param2 = <code>2989.0</code>, alt-hold-only type_mask = <code>1531</code></li>
+            <li><code>dry_run=true</code> computes &amp; logs but sends nothing; live needs <code>--flight-control-live</code></li>
+            <li>Every command logged to <code>flight_commands.jsonl</code></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- CLOSED LOOP -->
+    <div class="loop">
+      ↑&nbsp;&nbsp;CLOSED LOOP × 2 — the gimbal (UDP) re-aims the camera and the aircraft (MAVLink yaw) re-aims the airframe; both change the next RTSP frame, so the pipeline continuously minimises the pixel error between target and frame centre.&nbsp;&nbsp;↑
+    </div>
+
+    <div class="note ny">
+      <strong>Parallel outputs written every frame:</strong> raw_camera.mp4 (written before inference), annotated.mp4 (bboxes + lock-state overlay), operator view (HDMI or MJPEG-over-WiFi), diagnostics.csv, plus gimbal_follow_commands.jsonl and flight_commands.jsonl when those actuators are enabled.
+    </div>
+
+  </div><!-- /pipeline -->
+</div>
+
+<!-- ═══════════════ C. LOCK FSM ═══════════════ -->
+<div class="section">
+  <div class="sec-hd">
+    <div class="sec-num" style="background:#f0883e;color:#000">C</div>
+    <div><h2>Lock State Machine — Full Lifecycle</h2><p>PRD §12 · One independent instance per detected track_id · deterministic, testable, no ML inside</p></div>
+  </div>
+
+  <div class="card" style="padding:28px 24px">
+    <div style="font-size:17px;font-weight:700;color:#c9d1d9;margin-bottom:4px">9-State Lock Lifecycle</div>
+    <div style="font-size:12px;color:#8b949e;margin-bottom:28px">guidance_valid = true only in <strong style="color:#3fb950">LOCKED</strong> and <strong style="color:#3fb950">STRIKE_READY</strong> states with no fault flags</div>
+
+    <!-- HAPPY PATH -->
+    <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#6e7681;text-transform:uppercase;margin-bottom:12px">Happy Path (Drone Acquired → Locked)</div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:30px">
+      <div style="background:#161b22;border:2px solid #444d56;border-radius:8px;padding:10px 16px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#8b949e;margin-bottom:4px">NO_CUE</div>
+        <div style="font-size:10px;color:#6e7681">idle, waiting</div>
+      </div>
+      <span style="color:#444d56;font-size:20px;font-weight:300">→</span>
+      <div style="background:#161b22;border:2px solid #57c7ff;border-radius:8px;padding:10px 16px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#57c7ff;margin-bottom:4px">SEARCHING</div>
+        <div style="font-size:10px;color:#6e7681">track appeared</div>
+      </div>
+      <span style="color:#444d56;font-size:20px;font-weight:300">→</span>
+      <div style="background:#161b22;border:2px solid #d29922;border-radius:8px;padding:10px 16px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#d29922;margin-bottom:4px">ACQUIRED</div>
+        <div style="font-size:10px;color:#6e7681">track alive</div>
+      </div>
+      <span style="color:#444d56;font-size:20px;font-weight:300">→</span>
+      <div style="background:#161b22;border:2px solid #f0883e;border-radius:8px;padding:10px 16px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#f0883e;margin-bottom:4px">TRACKING</div>
+        <div style="font-size:10px;color:#6e7681">≥3 hits confirmed</div>
+      </div>
+      <span style="color:#444d56;font-size:20px;font-weight:300">→</span>
+      <div style="background:rgba(63,185,80,0.1);border:2px solid #3fb950;border-radius:8px;padding:10px 16px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#3fb950;margin-bottom:4px">LOCKED</div>
+        <div style="font-size:10px;color:#6e7681">class+quality gates pass</div>
+      </div>
+      <span style="color:#444d56;font-size:20px;font-weight:300">→</span>
+      <div style="background:rgba(63,185,80,0.08);border:2px solid #3fb950;border-radius:8px;padding:10px 16px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#3fb950;margin-bottom:4px">STRIKE_READY</div>
+        <div style="font-size:10px;color:#6e7681">centered + stable</div>
+      </div>
+    </div>
+
+    <!-- RECOVERY & FAILURE PATHS -->
+    <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#6e7681;text-transform:uppercase;margin-bottom:12px">Recovery &amp; Failure Paths</div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:30px">
+      <div style="background:rgba(63,185,80,0.07);border:2px solid rgba(63,185,80,0.45);border-radius:8px;padding:10px 16px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#3fb950">LOCKED / TRACKING</div>
+      </div>
+      <span style="color:#f85149;font-size:20px;font-weight:300">→</span>
+      <div style="background:rgba(248,81,73,0.1);border:2px solid #f85149;border-radius:8px;padding:10px 16px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#f85149;margin-bottom:4px">LOST</div>
+        <div style="font-size:10px;color:#6e7681">track dropped</div>
+      </div>
+      <span style="color:#f0883e;font-size:20px">↺</span>
+      <div style="background:#161b22;border:2px solid rgba(240,136,62,0.5);border-radius:8px;padding:10px 16px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#f0883e;margin-bottom:4px">TRACKING</div>
+        <div style="font-size:10px;color:#6e7681">if track returns</div>
+      </div>
+      <span style="color:#f85149;font-size:20px;font-weight:300">→</span>
+      <div style="background:rgba(248,81,73,0.06);border:2px solid rgba(248,81,73,0.4);border-radius:8px;padding:10px 16px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:rgba(248,81,73,0.8);margin-bottom:4px">ABORTED</div>
+        <div style="font-size:10px;color:#6e7681">after 2 s LOST</div>
+      </div>
+    </div>
+
+    <!-- ALL STATES -->
+    <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#6e7681;text-transform:uppercase;margin-bottom:12px">All States</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">
+      <div style="background:#161b22;border:2px solid #444d56;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#8b949e;margin-bottom:5px">NO_CUE</div>
+        <div style="font-size:10px;color:#6e7681">guidance_valid = false</div>
+      </div>
+      <div style="background:#161b22;border:2px solid #3fb950;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#3fb950;margin-bottom:5px">CUED</div>
+        <div style="font-size:10px;color:#6e7681">radar cue received</div>
+      </div>
+      <div style="background:#161b22;border:2px solid #57c7ff;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#57c7ff;margin-bottom:5px">SEARCHING</div>
+        <div style="font-size:10px;color:#6e7681">scanning for target</div>
+      </div>
+      <div style="background:#161b22;border:2px solid #d29922;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#d29922;margin-bottom:5px">ACQUIRED</div>
+        <div style="font-size:10px;color:#6e7681">first detection hit</div>
+      </div>
+      <div style="background:#161b22;border:2px solid #f0883e;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#f0883e;margin-bottom:5px">TRACKING</div>
+        <div style="font-size:10px;color:#6e7681">guidance_valid = false</div>
+      </div>
+      <div style="background:rgba(63,185,80,0.1);border:2px solid #3fb950;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#3fb950;margin-bottom:5px">LOCKED</div>
+        <div style="font-size:10px;color:#3fb950">guidance_valid = TRUE ✓</div>
+      </div>
+      <div style="background:rgba(63,185,80,0.08);border:2px solid #3fb950;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#3fb950;margin-bottom:5px">STRIKE_READY</div>
+        <div style="font-size:10px;color:#3fb950">guidance_valid = TRUE ✓</div>
+      </div>
+      <div style="background:rgba(248,81,73,0.1);border:2px solid #f85149;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:#f85149;margin-bottom:5px">LOST</div>
+        <div style="font-size:10px;color:#6e7681">guidance_valid = false</div>
+      </div>
+      <div style="background:rgba(248,81,73,0.06);border:2px solid rgba(248,81,73,0.4);border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:12px;font-weight:700;color:rgba(248,81,73,0.7);margin-bottom:5px">ABORTED</div>
+        <div style="font-size:10px;color:#6e7681">terminal state</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FSM gate rules — 4 info cards -->
+  <div class="g2" style="margin-top:14px">
+    <div class="card">
+      <div class="card-title" style="color:#f0883e">TRACKING → LOCKED gates (must hold for 5 consecutive frames)</div>
+      <div class="kv" style="margin-top:10px">
+        <div class="kvr"><span class="kk">class_label</span><span class="kv2">∈ acceptable_lock_labels (default: <code>["drone"]</code>)</span></div>
+        <div class="kvr"><span class="kk">class_confidence</span><span class="kv2">≥ 0.25 (config: min_class_confidence)</span></div>
+        <div class="kvr"><span class="kk">lock_quality</span><span class="kv2">≥ 0.30 (composite: IoU + stability + flow)</span></div>
+        <div class="kvr"><span class="kk">failure penalty</span><span class="kv2">Counter resets to 0 if any gate fails mid-sequence</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="color:#3fb950">LOCKED → STRIKE_READY additional gates</div>
+      <div class="kv" style="margin-top:10px">
+        <div class="kvr"><span class="kk">Continuous lock duration</span><span class="kv2">≥ 0.5 s</span></div>
+        <div class="kvr"><span class="kk">bbox_frame_fraction</span><span class="kv2">≥ 0.05 (target is big enough)</span></div>
+        <div class="kvr"><span class="kk">bbox_center_norm_distance</span><span class="kv2">≤ 0.5 (target near frame center)</span></div>
+        <div class="kvr"><span class="kk">revoke</span><span class="kv2">Instantly if any gate fails — no grace period</span></div>
+      </div>
+    </div>
+    <div class="card cr">
+      <div class="card-title" style="color:#f85149">Safety Rule — no exceptions</div>
+      <div style="font-size:12px;color:#8b949e;line-height:1.8;margin-top:10px">
+        Any active <strong style="color:#f85149">fault flag</strong> drops straight to ABORTED and forces <code>guidance_valid = false</code>, regardless of lock state.<br>
+        Faults that trigger this: <code>MODEL_FAULT</code>, <code>BLUR_HIGH</code>, <code>VIBRATION_HIGH</code>, <code>CAMERA_DROP</code>, <code>CUE_STALE</code>, <code>INHIBIT</code>, <code>CALIBRATION_DRIFT</code> …
+      </div>
+    </div>
+    <div class="card co">
+      <div class="card-title" style="color:#f0883e">LOST timeout &amp; recovery</div>
+      <div style="font-size:12px;color:#8b949e;line-height:1.8;margin-top:10px">
+        LOST → <strong style="color:rgba(248,81,73,0.85)">ABORTED</strong> after <strong style="color:#c9d1d9">2.0 s</strong> without recovery<br>
+        LOST → <strong style="color:#f0883e">TRACKING</strong> if track comes back (reacquisition)<br>
+        ABORTED → <strong style="color:#57c7ff">SEARCHING</strong> on next fresh detection
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ D. OUTPUTS ═══════════════ -->
+<div class="section">
+  <div class="sec-hd">
+    <div class="sec-num" style="background:#d29922;color:#000">D</div>
+    <div><h2>Output Artifacts — written per run</h2><p>All written to <code>data/outputs/jetson_live_tensorrt_&lt;timestamp&gt;/</code></p></div>
+  </div>
+  <div class="g4">
+    <div class="artifact"><div class="aname">raw_camera.mp4</div><div class="adesc">Raw unprocessed SIYI A8 Mini RTSP frames. Written before any inference. Ground truth for replay debugging.</div><div class="awhen">Written first — every frame</div></div>
+    <div class="artifact"><div class="aname">annotated.mp4</div><div class="adesc">Same frames + bboxes, lock-state color overlay (green=LOCKED, orange=TRACKING, red=LOST), guidance arrow, latency HUD.</div><div class="awhen">15 fps output (YOLOv26n config)</div></div>
+    <div class="artifact"><div class="aname">target_states.jsonl</div><div class="adesc">One JSON line per frame — lock state, bounding box, confidence, active faults, and latency. The primary feed for any flight controller or external system integrating with this pipeline.</div><div class="awhen">Every frame, always</div></div>
+    <div class="artifact"><div class="aname">guidance_hints.jsonl</div><div class="adesc">Per-frame bearing and elevation error, the gimbal rate command, and the lead prediction. Advisory only — useful for bench analysis and tuning. Never sent to hardware directly.</div><div class="awhen">When guidance.enabled: true</div></div>
+    <div class="artifact"><div class="aname">gimbal_follow_commands.jsonl</div><div class="adesc">Every gimbal command: yaw_cmd, pitch_cmd, valid, reason, lock_state, pixel_error_px. Dry-run or live flagged in each record.</div><div class="awhen">When gimbal_follow.enabled: true</div></div>
+    <div class="artifact" style="border-color:rgba(88,166,255,.4)"><div class="aname">flight_commands.jsonl</div><div class="adesc">Every MAVLink decision: target_yaw_heading_deg, bearing_error_deg, lock_state, valid/reason, dry_run flag, and FC state (guided/armed/takeoff). The flight engineer's primary post-flight log — replaces the ad-hoc prints in the old hand_track.py.</div><div class="awhen">When flight_control.enabled: true</div></div>
+    <div class="artifact"><div class="aname">diagnostics.csv</div><div class="adesc">Per-frame tabular: frame_index, lock_state, confidence, latency_ms, bbox coords. Used for post-flight plotting.</div><div class="awhen">Always written</div></div>
+    <div class="artifact"><div class="aname">eval_report.json</div><div class="adesc">Aggregate metrics: lock rate, detection rate. Compares against ground-truth CSV if provided.</div><div class="awhen">Written on pipeline close</div></div>
+    <div class="artifact"><div class="aname">run_manifest.json</div><div class="adesc">Full run metadata: run_id, config snapshot, source settings, all artifact paths, frame count, final status.</div><div class="awhen">Finalized on clean shutdown</div></div>
+  </div>
+</div>
+
+<!-- ═══════════════ E. CONFIG COMPARISON ═══════════════ -->
+<div class="section">
+  <div class="sec-hd">
+    <div class="sec-num" style="background:#3fb950;color:#000">E</div>
+    <div><h2>Key Config — YOLOv26n vs YOLO11s</h2><p>Active: <code>configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml</code></p></div>
+  </div>
+  <table class="cfg">
+    <thead>
+      <tr>
+        <th>Block</th>
+        <th>Setting</th>
+        <th style="color:#3fb950">YOLOv26n (current)</th>
+        <th>YOLO11s Stage2 (previous)</th>
+        <th>Why it changed</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>source</strong></td><td>type</td><td class="new"><code>siyi_a8_mini</code> (RTSP)</td><td class="old"><code>live_camera</code> (USB V4L2)</td><td>Switched from generic USB camera to SIYI A8 Mini Ethernet camera</td></tr>
+      <tr><td></td><td>ingest</td><td class="new">Background thread, always-newest-frame</td><td class="old">Blocking V4L2 MJPG read</td><td>IP camera needs threaded reader to avoid buffering lag</td></tr>
+      <tr><td><strong>detector</strong></td><td>weights</td><td class="new"><code>yolov26_lrdd_v2_img1024/best.engine</code></td><td class="old"><code>yolo11s_stage2/best.engine</code></td><td>YOLOv26n nano trained on LRDDv2, single drone class</td></tr>
+      <tr><td></td><td>input_size</td><td class="new"><code>1024</code></td><td class="old"><code>1024</code></td><td>384/640 bench collapsed drone to a few px; 1024 gives ~53×32 px bbox — reliable on the stride-8 head</td></tr>
+      <tr><td></td><td>precision</td><td class="new"><code>FP32</code></td><td class="old"><code>FP16</code></td><td>FP32 engine built natively on this Jetson at static 1024 shape</td></tr>
+      <tr><td></td><td>keep_class_ids</td><td class="new"><code>[0]</code> — drone only</td><td class="old"><code>[0,1,2,3]</code> — 4 classes</td><td>YOLOv26n is single-class "drone"</td></tr>
+      <tr><td><strong>tracker</strong></td><td>reacquisition_radius_px</td><td class="new"><code>450</code></td><td class="old"><code>180</code></td><td>Wider window for fast-moving drones</td></tr>
+      <tr><td></td><td>max_prediction_only_frames</td><td class="new"><code>12</code></td><td class="old"><code>1</code></td><td>~2 s coast at ~6 fps with inter-frame LK filling the gaps</td></tr>
+      <tr><td></td><td>track_buffer_frames</td><td class="new"><code>60</code></td><td class="old"><code>36</code></td><td>Longer buffer before giving up on a track</td></tr>
+      <tr><td></td><td>lk_min_points</td><td class="new"><code>4</code></td><td class="old"><code>6</code></td><td>Lowered for tiny targets (~0.08% of frame)</td></tr>
+      <tr><td><strong>lock</strong></td><td>tracking_to_locked_frames</td><td class="new"><code>5</code></td><td class="old"><code>8</code></td><td>Fewer frames needed at higher pipeline FPS</td></tr>
+      <tr><td></td><td>min_lock_quality</td><td class="new"><code>0.30</code></td><td class="old"><code>0.50</code></td><td>More permissive threshold while evaluating new model</td></tr>
+      <tr><td><strong>guidance</strong></td><td>advisory_before_lock</td><td class="new"><code>true</code></td><td class="old"><code>false</code></td><td>Log guidance hints even in TRACKING for bench analysis</td></tr>
+      <tr><td><strong>gimbal_follow</strong></td><td>enabled / dry_run</td><td class="new"><code>true / false</code> — LIVE UDP</td><td class="old">disabled</td><td>Active gimbal follow with real commands to SIYI A8 Mini</td></tr>
+      <tr><td></td><td>allowed_lock_states</td><td class="new">TRACKING, LOCKED, STRIKE_READY</td><td class="old">LOCKED, STRIKE_READY only</td><td>Gimbal tracks from TRACKING onwards for smoother servo</td></tr>
+      <tr><td style="color:#58a6ff"><strong>flight_control</strong></td><td>enabled / dry_run</td><td class="new"><code>false / true</code> — off until opted in</td><td class="old">did not exist</td><td><strong>New block.</strong> Phase-1 MAVLink yaw + alt-hold. Go live with <code>--flight-control-live</code> (or set both flags). pymavlink installed on-demand, not in requirements</td></tr>
+      <tr><td></td><td>serial_port / baud</td><td class="new"><code>/dev/ttyACM0</code> / <code>115200</code></td><td class="old">—</td><td>USB to Pixhawk; alt <code>/dev/ttyTHS1</code> @ 921600 for telemetry radio</td></tr>
+      <tr><td></td><td>max_heading_deg</td><td class="new"><code>15.0</code></td><td class="old">—</td><td>Per-command relative-yaw clamp — matches the engineer's old PID limit</td></tr>
+      <tr><td><strong>output</strong></td><td>annotated_video_fps</td><td class="new"><code>15.0</code></td><td class="old"><code>5.0</code></td><td>Review video cadence (independent of live pipeline FPS)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════ F. MODULE MAP ═══════════════ -->
+<div class="section">
+  <div class="sec-hd">
+    <div class="sec-num" style="background:#8b949e;color:#000">F</div>
+    <div><h2>Module Map</h2><p>Where everything lives, grouped by what it does. Every module can be tested on its own — <code>pipeline.py</code> is the one place they all come together.</p></div>
+  </div>
+  <div class="modmap">
+
+    <!-- ── CAMERA INPUT ── -->
+    <div style="display:flex;align-items:center;gap:9px;padding:8px 20px;background:rgba(57,197,207,.05);border-bottom:1px solid rgba(57,197,207,.15)">
+      <span style="font-size:15px;line-height:1">📥</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#39c5cf">Camera Input</span>
+    </div>
+    <div class="modrow"><span class="mpkg">skyscouter/io/rtsp_stream_source.py</span><span class="mdesc">Runs a background thread that continuously pulls the latest frame from the SIYI A8 Mini over RTSP — so the pipeline always gets a fresh image, never a stale buffered one. Reconnects on its own if the stream drops.</span></div>
+    <div class="modrow"><span class="mpkg">skyscouter/io/frame_source.py</span><span class="mdesc">Makes all camera sources look identical to the rest of the pipeline. One value in the config file (<code>source.type</code>) swaps the camera — nothing else needs to change.</span></div>
+    <div class="modrow"><span class="mpkg">skyscouter/io/live_camera_source.py</span><span class="mdesc">The original USB webcam reader from before the SIYI was introduced. Still here but not used in any active config.</span></div>
+
+    <!-- ── DETECTION ── -->
+    <div style="display:flex;align-items:center;gap:9px;padding:8px 20px;background:rgba(188,140,255,.05);border-bottom:1px solid rgba(188,140,255,.15);border-top:1px solid rgba(33,38,45,.7)">
+      <span style="font-size:15px;line-height:1">🔍</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#bc8cff">Detection</span>
+    </div>
+    <div class="modrow"><span class="mpkg">skyscouter/perception/yolo_ultralytics.py</span><span class="mdesc">Runs YOLOv26n on every frame and returns a list of drone candidates with bounding boxes and confidence scores. Works the same way with a <code>.pt</code> file during development or a TensorRT <code>.engine</code> on the Jetson — no code change needed.</span></div>
+    <div class="modrow"><span class="mpkg">skyscouter/perception/factory.py</span><span class="mdesc">Reads the <code>detector.backend</code> key from config and hands back the right detector. Change one line in YAML to swap models — the pipeline never knows anything changed.</span></div>
+
+    <!-- ── TRACKING ── -->
+    <div style="display:flex;align-items:center;gap:9px;padding:8px 20px;background:rgba(210,153,34,.05);border-bottom:1px solid rgba(210,153,34,.15);border-top:1px solid rgba(33,38,45,.7)">
+      <span style="font-size:15px;line-height:1">🎯</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#d29922">Tracking</span>
+    </div>
+    <div class="modrow"><span class="mpkg">skyscouter/tracking/single_target_kalman_lk.py</span><span class="mdesc">Keeps following the drone even when the detector misses it for a few frames. Uses four layers: a background inter-frame LK thread, motion prediction, per-detection optical flow, and color appearance matching to confirm it's still the same object if multiple detections appear nearby.</span></div>
+    <div class="modrow"><span class="mpkg">skyscouter/tracking/inter_frame_lk.py</span><span class="mdesc" style="color:#3fb950">✦ The "never loses it" layer. A background thread runs Lucas-Kanade optical flow on <em>every</em> decoded camera frame (full 30 fps) instead of only on the slower YOLO frames, with a forward-backward consistency check and auto feature-refresh. This is the autonomous adaptation of the engineer's click-to-track technique — same flow idea, but seeded by the detector, no mouse click.</span></div>
+    <div class="modrow"><span class="mpkg">skyscouter/tracking/factory.py</span><span class="mdesc">Same pattern as the detector factory — tracker backend is a config value, not a code change.</span></div>
+
+    <!-- ── LOCK DECISION ── -->
+    <div style="display:flex;align-items:center;gap:9px;padding:8px 20px;background:rgba(240,136,62,.05);border-bottom:1px solid rgba(240,136,62,.15);border-top:1px solid rgba(33,38,45,.7)">
+      <span style="font-size:15px;line-height:1">🔒</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#f0883e">Lock Decision</span>
+    </div>
+    <div class="modrow"><span class="mpkg">skyscouter/lock/state_machine.py</span><span class="mdesc">Decides when the system is genuinely confident enough to call it a lock. Pure deterministic logic — no ML, no probability. Fully covered by unit tests. Each detected target gets its own instance, so multiple tracks in the frame never interfere with each other.</span></div>
+
+    <!-- ── GUIDANCE ── -->
+    <div style="display:flex;align-items:center;gap:9px;padding:8px 20px;background:rgba(88,166,255,.05);border-bottom:1px solid rgba(88,166,255,.15);border-top:1px solid rgba(33,38,45,.7)">
+      <span style="font-size:15px;line-height:1">🧭</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#58a6ff">Guidance</span>
+    </div>
+    <div class="modrow"><span class="mpkg">skyscouter/guidance/bearing.py</span><span class="mdesc">Converts the pixel gap between the drone and the frame center into a real bearing angle, smooths out jitter, then adds a short lead prediction — so the gimbal steers slightly ahead of the drone rather than always trailing behind it.</span></div>
+
+    <!-- ── GIMBAL ── -->
+    <div style="display:flex;align-items:center;gap:9px;padding:8px 20px;background:rgba(63,185,80,.05);border-bottom:1px solid rgba(63,185,80,.15);border-top:1px solid rgba(33,38,45,.7)">
+      <span style="font-size:15px;line-height:1">🎮</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#3fb950">Gimbal Control</span>
+    </div>
+    <div class="modrow"><span class="mpkg">skyscouter/gimbal/follow_controller.py</span><span class="mdesc">Sits between the guidance output and the actual hardware. Caps commands at 10 Hz so the gimbal isn't overwhelmed, ignores tiny errors below a deadband threshold, and stops the gimbal quickly once the track is gone.</span></div>
+    <div class="modrow"><span class="mpkg">skyscouter/gimbal/siyi_client.py</span><span class="mdesc">The only file in the whole codebase that physically talks to the gimbal. Sends UDP speed commands to the SIYI A8 Mini to rotate the camera. If you want to understand the wire protocol, this is the place to look.</span></div>
+
+    <!-- ── FLIGHT CONTROL ── -->
+    <div style="display:flex;align-items:center;gap:9px;padding:8px 20px;background:rgba(88,166,255,.05);border-bottom:1px solid rgba(88,166,255,.15);border-top:1px solid rgba(33,38,45,.7)">
+      <span style="font-size:15px;line-height:1">🛩️</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#58a6ff">Flight Control · NEW</span>
+    </div>
+    <div class="modrow"><span class="mpkg">skyscouter/flight/mavlink_link.py</span><span class="mdesc" style="color:#58a6ff">✦ The only file that talks to the autopilot — the FC counterpart of <code>siyi_client.py</code>. Takes the per-frame GuidanceHint, turns the bearing error into a relative-yaw command, and runs the SET_MODE → ARM → NAV_TAKEOFF → alt-hold + CONDITION_YAW sequence over MAVLink on a 30 Hz background thread. This is where everything from the old <code>hand_track.py</code> MavlinkYawLink now lives. Start here.</span></div>
+    <div class="modrow"><span class="mpkg">skyscouter/flight/factory.py</span><span class="mdesc">Same factory pattern as the gimbal/detector — reads the <code>flight_control</code> config block, and returns a started MavlinkFlightLink (or None when disabled). The pipeline never imports pymavlink directly; it's lazy-loaded here only when the link is enabled.</span></div>
+
+    <!-- ── OUTPUT ── -->
+    <div style="display:flex;align-items:center;gap:9px;padding:8px 20px;background:rgba(139,148,158,.05);border-bottom:1px solid rgba(139,148,158,.15);border-top:1px solid rgba(33,38,45,.7)">
+      <span style="font-size:15px;line-height:1">📤</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8b949e">Output &amp; Display</span>
+    </div>
+    <div class="modrow"><span class="mpkg">skyscouter/output/annotator.py</span><span class="mdesc">Draws the detection box, lock-state color (green = locked, orange = tracking, red = lost), the guidance direction arrow, and the frame latency overlay before writing each frame to the output video.</span></div>
+    <div class="modrow"><span class="mpkg">skyscouter/output/operator_view.py</span><span class="mdesc">Shows the annotated live feed in real time — either full-screen on a connected HDMI display, or as an HTTP stream you can open from any browser on the local network.</span></div>
+
+    <!-- ── CORE ── -->
+    <div style="display:flex;align-items:center;gap:9px;padding:8px 20px;background:rgba(88,166,255,.05);border-bottom:1px solid rgba(88,166,255,.15);border-top:1px solid rgba(33,38,45,.7)">
+      <span style="font-size:15px;line-height:1">🏗️</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#58a6ff">Core</span>
+    </div>
+    <div class="modrow"><span class="mpkg">skyscouter/schemas.py</span><span class="mdesc">All the data structures that modules pass to each other — what a target state looks like, what lock states exist, what counts as a fault. If two modules need to communicate, the contract is defined here. Change it carefully.</span></div>
+    <div class="modrow"><span class="mpkg">skyscouter/pipeline.py</span><span class="mdesc">The only file that touches all the others. Runs the main frame loop, wires every module together in the right order, and keeps one independent lock-state tracker running per detected target. Start reading here if you're new.</span></div>
+
+    <!-- ── SCRIPTS & CONFIG ── -->
+    <div style="display:flex;align-items:center;gap:9px;padding:8px 20px;background:rgba(33,38,45,.5);border-bottom:1px solid rgba(33,38,45,.9);border-top:1px solid rgba(33,38,45,.7)">
+      <span style="font-size:15px;line-height:1">⚙️</span>
+      <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6e7681">Scripts &amp; Config</span>
+    </div>
+    <div class="modrow"><span class="mpkg">scripts/run_jetson_live_pipeline.py</span><span class="mdesc">The quick way to launch the pipeline. Pass <code>--backend tensorrt</code> or <code>--backend pytorch</code> and it picks the right config automatically — no need to remember filenames.</span></div>
+    <div class="modrow"><span class="mpkg">scripts/export_tensorrt.py</span><span class="mdesc">One-time model conversion: turns a trained <code>.pt</code> file into a TensorRT <code>.engine</code> for the Jetson. Must run on the actual target device — the engine is locked to that specific hardware and software stack and won't work anywhere else.</span></div>
+    <div class="modrow"><span class="mpkg">configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml</span><span class="mdesc" style="color:#3fb950">✦ Active production config — YOLOv26n + SIYI A8 Mini + gimbal follow fully live with real commands going to the hardware.</span></div>
+    <div class="modrow"><span class="mpkg">configs/deploy_jetson_siyi_a8_mini_stage2_engine_1080p.yaml</span><span class="mdesc">Previous config, kept for comparison. YOLO11s Stage2, gimbal follow disabled. Handy reference when tuning thresholds or understanding what changed between the two.</span></div>
+
+  </div>
+</div>
+
+
+<!-- ═══════════════ FC. FLIGHT-CONTROLLER MIGRATION MAP ═══════════════ -->
+<div class="section" id="fc-migration">
+  <div class="sec-hd">
+    <div class="sec-num" style="background:#58a6ff;color:#000">✈</div>
+    <div><h2>Flight Controller Onboarding — <code>hand_track.py</code> → SkyScouter</h2><p>For the FC / drone engineer: what moved where from <code>drone-control-jetson-main/</code>, and how you keep building on the new codebase</p></div>
+  </div>
+
+  <!-- The mental shift -->
+  <div class="card cb" style="margin-bottom:14px">
+    <div class="card-title" style="color:#58a6ff">The one mental shift</div>
+    <div style="font-size:13px;color:#c9d1d9;line-height:1.7;margin-top:8px">
+      Your old <code>hand_track.py</code> was a single ~2,300-line script that did <em>everything</em> in one file: open the camera, run hand detection, smooth the target, run a PID, and talk MAVLink to the autopilot. SkyScouter does the exact same job but splits it into small, independently testable modules wired together by one orchestrator (<code>skyscouter/pipeline.py</code>).
+      <br><br>
+      <strong style="color:#3fb950">Your MAVLink logic was not rewritten — it was relocated, almost line-for-line, into <code>skyscouter/flight/mavlink_link.py</code>.</strong> The magic numbers you already trust (force-arm <code>2989.0</code>, alt-hold type_mask <code>1531</code>, relative <code>CONDITION_YAW</code>) are preserved verbatim. What changed is <em>where the target comes from</em>: instead of a hand-detection box you clicked toward, the autonomous vision pipeline produces a <code>GuidanceHint</code> with a <code>bearing_error_deg</code>, and the flight link consumes that.
+    </div>
+  </div>
+
+  <!-- THE MAP: old → new -->
+  <div style="font-size:13px;font-weight:700;color:#c9d1d9;margin:18px 0 10px">What moved where — <code>drone-control-jetson-main/</code> → <code>skyscouter/</code></div>
+  <table class="cfg">
+    <thead>
+      <tr>
+        <th>Old (your codebase)</th>
+        <th>What it did</th>
+        <th style="color:#3fb950">New home in SkyScouter</th>
+        <th>Notes for you</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>hand_track.py</code> · <strong>MavlinkYawLink</strong></td>
+        <td>Connect to FC, mode/arm/takeoff, send CONDITION_YAW + position-target, heartbeat</td>
+        <td class="new"><code>flight/mavlink_link.py</code> · <strong>MavlinkFlightLink</strong></td>
+        <td>Same 7 MAVLink messages, same magic numbers. Now config-driven and runs on a 30 Hz sender thread.</td>
+      </tr>
+      <tr>
+        <td><code>hand_track.py</code> · <strong>PidController</strong></td>
+        <td>PID on the smoothed pixel error → heading</td>
+        <td class="new"><code>guidance/controller.py</code> + <code>filtering.py</code></td>
+        <td>The smoothing/EMA + lead-prediction + P-controller now live in the guidance stage (pipeline stage 6), shared by gimbal and FC.</td>
+      </tr>
+      <tr>
+        <td><code>hand_track.py</code> · <strong>HandYawController</strong></td>
+        <td>Glue: detection → target pick → PID → MAVLink</td>
+        <td class="new"><code>skyscouter/pipeline.py</code></td>
+        <td>The orchestration glue is now the pipeline loop. You rarely edit this — you edit the module it calls.</td>
+      </tr>
+      <tr>
+        <td><code>hand_track.py</code> · hand YOLO + target pick</td>
+        <td>Detect the thing to follow, choose one</td>
+        <td class="new"><code>perception/yolo_ultralytics.py</code> + <code>tracking/…</code> + <code>lock/state_machine.py</code></td>
+        <td>Replaced by the drone detector + single-target tracker + 9-state lock FSM. <strong>No manual click</strong> — fully autonomous.</td>
+      </tr>
+      <tr>
+        <td><code>hand_track.py</code> · <code>last_heading = pid(dx) * -1.0</code></td>
+        <td>Hard-coded sign flip on yaw</td>
+        <td class="new"><code>flight_control.invert_yaw</code> (config)</td>
+        <td>The hard-coded <code>* -1.0</code> is now a config flag. We verified sign on the bench: keep <code>invert_yaw: false</code>.</td>
+      </tr>
+      <tr>
+        <td><code>siyi_sdk.py</code></td>
+        <td>SIYI gimbal UDP binary protocol</td>
+        <td class="new"><code>gimbal/siyi_client.py</code></td>
+        <td>Same protocol, cleaned up. Gimbal follow is a separate, already-live actuator (pipeline stage 7).</td>
+      </tr>
+      <tr>
+        <td><code>camera_link.py</code> (nmcli Ethernet)</td>
+        <td>Bring up the camera network</td>
+        <td class="new"><code>jetson.sh</code> + RTSP source config</td>
+        <td>Network/launch concerns moved into <code>jetson.sh</code> and the YAML <code>source:</code> block.</td>
+      </tr>
+      <tr>
+        <td><code>config/hand-track.service</code></td>
+        <td>systemd autostart on boot</td>
+        <td class="new"><code>jetson.sh autostart</code> (option 14)</td>
+        <td>Installs a systemd <em>user</em> service for headless field boot. Same idea, one command.</td>
+      </tr>
+      <tr>
+        <td>print() debugging</td>
+        <td>Ad-hoc stdout</td>
+        <td class="new"><code>flight_commands.jsonl</code> + <code>[flight]</code> stderr</td>
+        <td>Every decision and every COMMAND_ACK (decoded to ACCEPTED/DENIED) is logged per-frame for post-flight review.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- MAVLink command flow -->
+  <div style="font-size:13px;font-weight:700;color:#c9d1d9;margin:24px 0 10px">The MAVLink command flow (unchanged from your code — just relocated)</div>
+  <div class="card" style="padding:18px 22px">
+    <div style="font-size:12px;color:#8b949e;line-height:1.7;margin-bottom:14px">
+      Exactly the 7 message types your <code>hand_track.py</code> sent — nothing more. The sender thread walks this sequence automatically once <code>consume()</code> starts receiving valid hints:
+    </div>
+    <div class="pbody">
+      <div class="pcol">
+        <h4>Bring-up sequence (once)</h4>
+        <ul>
+          <li><code>DO_SET_MODE</code> → <strong>GUIDED</strong> &nbsp;<span style="color:#6e7681">(sent before any gate — the fix that made option 6 work)</span></li>
+          <li><code>COMPONENT_ARM_DISARM</code> force-arm, param2 = <code>2989.0</code></li>
+          <li><code>NAV_TAKEOFF</code> → <code>guided_alt_m</code> (default 2 m; <code>--fc-alt-m</code> to raise)</li>
+          <li>settle: hold yaw=0 for <code>post_takeoff_settle_s</code></li>
+        </ul>
+      </div>
+      <div class="pcol">
+        <h4>Per-tick stream (30 Hz)</h4>
+        <ul>
+          <li><code>SET_POSITION_TARGET_LOCAL_NED</code>, type_mask = <code>1531</code> (altitude hold only)</li>
+          <li><code>CONDITION_YAW</code>, param4 = <code>1.0</code> (relative); heading from bearing error, clamped ±15°</li>
+          <li><code>HEARTBEAT</code> + <code>REQUEST_DATA_STREAM</code> kept alive</li>
+          <li>Stale hint &gt; 0.5 s, or lock lost &gt; <code>stop_after_lost_s</code> → yaw 0 (hold)</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note ny" style="margin:14px 0 0">
+      <strong>No LAND / RTL / disarm in code</strong> — same as your <code>hand_track.py</code>. Those stay on the pilot's RC switch as the hardware failsafe. Phase-1 failsafe in software is "zero yaw + hold position" (your Q12 answer).
+    </div>
+  </div>
+
+  <!-- How to run -->
+  <div style="font-size:13px;font-weight:700;color:#c9d1d9;margin:24px 0 10px">How to run it — <code>jetson.sh</code> menu</div>
+  <div class="g2">
+    <div class="card cb">
+      <div class="card-title" style="color:#58a6ff">Bench / dry-run first</div>
+      <div class="kv" style="margin-top:8px">
+        <div class="kvr"><span class="kk">Option 5</span><span class="kv2"><strong>FC dry-run</strong> — full pipeline + FC, commands computed &amp; logged to <code>flight_commands.jsonl</code> but <em>never sent</em>. Use this to verify yaw sign before flying.</span></div>
+        <div class="kvr"><span class="kk">Sign check</span><span class="kv2">Target right of centre → positive <code>target_yaw_heading_deg</code>. Verified ✓ keep <code>invert_yaw: false</code>.</span></div>
+        <div class="kvr"><span class="kk">See video</span><span class="kv2">Videos always saved. For a live window add <code>--operator-view-mode mjpeg</code> (WiFi) or <code>--operator-view-window-backend opencv</code>.</span></div>
+      </div>
+    </div>
+    <div class="card cr">
+      <div class="card-title" style="color:#f85149">Live flight</div>
+      <div class="kv" style="margin-top:8px">
+        <div class="kvr"><span class="kk">Option 6</span><span class="kv2"><strong>FC LIVE</strong> — commands actually sent. Guarded: you must type <code>fly</code> to confirm, and it refuses to run without a TTY.</span></div>
+        <div class="kvr"><span class="kk">Altitude</span><span class="kv2"><code>./jetson.sh run 6 --fc-alt-m 5</code> sets a 5 m takeoff/hold.</span></div>
+        <div class="kvr"><span class="kk">Headless field</span><span class="kv2"><code>./jetson.sh run 6</code> over SSH (Starlink WiFi). For boot-autostart use <code>./jetson.sh autostart</code> (option 14) + <code>SKYSCOUTER_MODEL</code> env to skip the model picker.</span></div>
+        <div class="kvr"><span class="kk">Proven</span><span class="kv2" style="color:#3fb950">Live test ✓ — force-ARM + NAV_TAKEOFF 2 m + CONDITION_YAW all ACCEPTED; aircraft yawed toward target, pilot landed on RC.</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="note nb" style="margin-top:12px">
+    <strong>One prerequisite:</strong> <code>pymavlink</code> + <code>pyserial</code> are <em>not</em> in <code>requirements-jetson.txt</code> (kept lean for the field). Install once at the office into the venv: <code>pip install pymavlink pyserial</code>. Also add yourself to the serial group once: <code>sudo usermod -aG dialout $USER</code> then re-login (or <code>newgrp dialout</code>).
+  </div>
+
+  <!-- How to continue development -->
+  <div style="font-size:13px;font-weight:700;color:#c9d1d9;margin:24px 0 10px">How you continue development</div>
+  <div class="g2">
+    <div class="card cg">
+      <div class="card-title" style="color:#3fb950">The staged interception plan (your Q7)</div>
+      <div style="font-size:12px;color:#8b949e;line-height:1.8;margin-top:8px">
+        <strong style="color:#3fb950">Phase 1 — DONE:</strong> yaw-only + altitude hold. (Where we are now.)<br>
+        <strong style="color:#d29922">Phase 2 — next:</strong> add climb/ascend — drive the <code>z</code> term of <code>SET_POSITION_TARGET_LOCAL_NED</code> from bbox elevation / pitch error instead of holding a fixed alt.<br>
+        <strong style="color:#f0883e">Phase 3:</strong> add forward velocity when STRIKE_READY — open the <code>vx</code> term (relax the <code>1531</code> type_mask) so the aircraft closes range.<br><br>
+        Each phase is a change inside <strong>one file</strong> (<code>mavlink_link.py</code>) plus a couple of config knobs — the rest of the pipeline is untouched.
+      </div>
+    </div>
+    <div class="card cb">
+      <div class="card-title" style="color:#58a6ff">Working rules &amp; where to look</div>
+      <ul style="list-style:none;font-size:12px;color:#c9d1d9;line-height:1.7;margin-top:8px;display:flex;flex-direction:column;gap:6px">
+        <li>· <strong>Edit only <code>flight/mavlink_link.py</code></strong> for FC behaviour. The interface in is <code>consume(hint)</code>; everything else is config.</li>
+        <li>· <strong>Always dry-run first</strong> (option 5) and inspect <code>flight_commands.jsonl</code> before going live.</li>
+        <li>· <strong>Tune via YAML</strong>, not code: <code>flight_control:</code> block in <code>configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml</code>.</li>
+        <li>· <strong>The contract</strong> between vision and FC is <code>GuidanceHint</code> in <code>schemas.py</code> — read it once, then you never need to touch the vision side.</li>
+        <li>· <strong>Reference, don't reuse</strong> your old repo at <code>~/Documents/drone-control-jetson-main/</code> — it stays as the bench reference, but new work lands in SkyScouter.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ G. NEXT SPRINT ═══════════════ -->
+<div class="section">
+  <div class="sec-hd">
+    <div class="sec-num" style="background:#bc8cff;color:#000">G</div>
+    <div><h2>Next Sprint — Open Integration Points</h2><p>Remaining areas where the pipeline has existing hooks waiting (flight control is now live — see §✈). Each can be developed independently without touching core logic.</p></div>
+  </div>
+
+  <!-- ── G1: THERMAL ── full width -->
+  <div class="card cp" style="margin-bottom:14px">
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:14px">
+      <span style="font-size:28px;line-height:1;flex-shrink:0">🌡️</span>
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#bc8cff;margin-bottom:3px">Thermal Camera Integration</div>
+        <div style="font-size:12px;color:#8b949e;line-height:1.6">Adding a thermal/IR channel to the pipeline — covers nighttime and camouflaged targets that EO mono misses. Could run as a second sensor in parallel with EO, or as a swap-in for low-light conditions.</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <span style="background:rgba(188,140,255,.1);border:1px solid rgba(188,140,255,.3);border-radius:4px;font-size:11px;color:#bc8cff;padding:3px 10px;font-family:'SF Mono',monospace">skyscouter/io/ — new ThermalStreamSource</span>
+      <span style="background:rgba(188,140,255,.1);border:1px solid rgba(188,140,255,.3);border-radius:4px;font-size:11px;color:#bc8cff;padding:3px 10px;font-family:'SF Mono',monospace">skyscouter/perception/ — thermal detector backend</span>
+      <span style="background:rgba(188,140,255,.1);border:1px solid rgba(188,140,255,.3);border-radius:4px;font-size:11px;color:#bc8cff;padding:3px 10px;font-family:'SF Mono',monospace">pipeline.py — fusion point</span>
+    </div>
+    <div class="pbody">
+      <div class="pcol">
+        <h4>Possible approach</h4>
+        <ul>
+          <li>Add <code>ThermalStreamSource</code> in <code>skyscouter/io/</code> mirroring <code>RtspStreamSource</code> structure; register as <code>source.type = "thermal"</code> in the factory</li>
+          <li>Add a thermal-trained detector (YOLO fine-tuned on IR) to <code>skyscouter/perception/</code> as a new backend entry</li>
+          <li>Fusion strategies to explore: run both detectors per frame then merge detection lists before tracker; or alternate frame source in low-light; or late fusion at track association score level</li>
+          <li>Tracker association score already has slots for extra confidence terms — thermal confidence can contribute there</li>
+        </ul>
+      </div>
+      <div class="pcol">
+        <h4>What's already wired</h4>
+        <ul>
+          <li><code>build_frame_source()</code> dispatches by <code>source.type</code> — add one branch, no other changes</li>
+          <li><code>build_detector()</code> dispatches by <code>detector.backend</code> — same factory pattern</li>
+          <li><code>TargetState.sensor_sources</code> is a <code>List[str]</code> — already accepts <code>["EO_MONO", "IR"]</code></li>
+          <li><code>FaultFlag.IR_FAULT</code> already defined in <code>schemas.py</code> — just needs to be raised</li>
+          <li><code>BaseDetector</code> and <code>BaseFrameSource</code> ABCs are clean to subclass with no modifications</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── G2 + G3: side by side ── -->
+  <div class="g2" style="margin-bottom:14px">
+
+    <!-- G2: Flight Controller — DONE -->
+    <div class="card cg">
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
+        <span style="font-size:24px;line-height:1;flex-shrink:0">🛩️</span>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#3fb950;margin-bottom:3px">Flight Controller Integration <span style="background:rgba(63,185,80,.15);border:1px solid rgba(63,185,80,.4);border-radius:4px;font-size:9px;padding:1px 7px;letter-spacing:.06em;vertical-align:middle">PHASE 1 DONE ✓</span></div>
+          <div style="font-size:11px;color:#8b949e;line-height:1.6">No longer a future hook — the MAVLink flight link is built, flight-tested, and documented in the <a href="#fc-migration" style="color:#58a6ff;text-decoration:none;font-weight:600">migration section ↑</a>. This box now tracks what remains.</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <span style="background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);border-radius:4px;font-size:10px;color:#3fb950;padding:2px 8px;font-family:'SF Mono',monospace">flight/mavlink_link.py</span>
+        <span style="background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);border-radius:4px;font-size:10px;color:#3fb950;padding:2px 8px;font-family:'SF Mono',monospace">flight_commands.jsonl</span>
+      </div>
+      <div class="kv">
+        <div class="kvr"><span class="kk" style="color:#3fb950">Done</span><span class="kv2">Phase 1 — MAVLink yaw + altitude hold; live takeoff + yaw-to-target verified on the aircraft.</span></div>
+        <div class="kvr"><span class="kk">Phase 2 (next)</span><span class="kv2">Climb/ascend — drive the <code>z</code> term from pitch/elevation error.</span></div>
+        <div class="kvr"><span class="kk">Phase 3</span><span class="kv2">Forward velocity when STRIKE_READY — open the <code>vx</code> term (relax type_mask 1531).</span></div>
+        <div class="kvr"><span class="kk">Avionics</span><span class="kv2">GPS / IMU still on ArduPilot side; <code>FaultFlag.INS_FAULT</code> reserved for feeding INS health back into the pipeline.</span></div>
+        <div class="kvr"><span class="kk">Geo-fence</span><span class="kv2">Relies on ArduPilot's onboard geo-fence (your Q14).</span></div>
+      </div>
+    </div>
+
+    <!-- G3: Base Station Radar -->
+    <div class="card co">
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
+        <span style="font-size:24px;line-height:1;flex-shrink:0">📡</span>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#f0883e;margin-bottom:3px">Base Station Radar — Cue Source</div>
+          <div style="font-size:11px;color:#8b949e;line-height:1.6">Wiring in the radar company's coordinate feed as the real <code>CueState</code> source — so the pipeline knows where to look before it even opens the camera.</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <span style="background:rgba(240,136,62,.1);border:1px solid rgba(240,136,62,.3);border-radius:4px;font-size:10px;color:#f0883e;padding:2px 8px;font-family:'SF Mono',monospace">schemas.py — CueState</span>
+        <span style="background:rgba(240,136,62,.1);border:1px solid rgba(240,136,62,.3);border-radius:4px;font-size:10px;color:#f0883e;padding:2px 8px;font-family:'SF Mono',monospace">skyscouter/io/ — new CueStateSource</span>
+      </div>
+      <div class="kv">
+        <div class="kvr"><span class="kk">The contract</span><span class="kv2"><code>CueState</code> in <code>schemas.py</code> is the agreed data structure — the radar company's output just needs to be mapped onto its fields</span></div>
+        <div class="kvr"><span class="kk">Coordinate type</span><span class="kv2"><code>CueState.coordinate_type</code> supports <code>GEODETIC</code>, <code>LOCAL_ENU</code>, <code>BEARING_RANGE</code> — pick what matches the radar's output format</span></div>
+        <div class="kvr"><span class="kk">Cue freshness</span><span class="kv2"><code>CueState.expiry_ms = 1500</code> — pipeline marks the cue stale after this window; tune per radar update rate</span></div>
+        <div class="kvr"><span class="kk">Provider ID</span><span class="kv2"><code>CueState.source_partner</code> field names the radar company — useful for log attribution and future multi-source arbitration</span></div>
+        <div class="kvr"><span class="kk">Today's state</span><span class="kv2">Simulator writes <code>CueState</code> JSON — the real reader just replaces the sim; pipeline.py doesn't change</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── G4: Camera Calibration ── full width -->
+  <div class="card cy">
+    <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:14px">
+      <span style="font-size:28px;line-height:1;flex-shrink:0">📐</span>
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#d29922;margin-bottom:3px">Camera Intrinsic Calibration — Checkerboard → Bearing Accuracy</div>
+        <div style="font-size:12px;color:#8b949e;line-height:1.6">Replacing the current simplified FOV-based bearing model with a proper intrinsic matrix from a checkerboard calibration session. Directly improves gimbal servo accuracy and the accuracy of bearing/elevation angles reported in <code>GuidanceHint</code>.</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <span style="background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.3);border-radius:4px;font-size:11px;color:#d29922;padding:3px 10px;font-family:'SF Mono',monospace">skyscouter/guidance/bearing.py — main change</span>
+      <span style="background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.3);border-radius:4px;font-size:11px;color:#d29922;padding:3px 10px;font-family:'SF Mono',monospace">skyscouter/calibration/ — new module (suggested)</span>
+      <span style="background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.3);border-radius:4px;font-size:11px;color:#d29922;padding:3px 10px;font-family:'SF Mono',monospace">schemas.py — calibration_id already in TargetState</span>
+    </div>
+    <div class="pbody">
+      <div class="pcol">
+        <h4>What changes in bearing.py</h4>
+        <ul>
+          <li>Current model: <code>bearing_err = pixel_err / frame_width × horizontal_fov_deg</code> — approximation, assumes linear projection</li>
+          <li>Calibrated model: <code>bearing_err = arctan((px − cx) / fx)</code> using intrinsic matrix <code>K = [fx, 0, cx; 0, fy, cy; 0, 0, 1]</code> from the checkerboard session</li>
+          <li>Undistortion step: <code>cv2.undistortPoints()</code> with distortion coefficients before computing angle — especially relevant at SIYI A8 Mini's wide FOV edges</li>
+          <li>Load K and dist coeffs from a calibration file at startup — a YAML or NumPy <code>.npz</code> next to the detector weights works well</li>
+        </ul>
+      </div>
+      <div class="pcol">
+        <h4>What's already in place</h4>
+        <ul>
+          <li><code>TargetState.calibration_id</code> field already exists — stamp the calibration file's hash so every output log knows which K was active</li>
+          <li><code>BridgeProposal.calibration_reviewed</code> bool already defined — flip this once a human has signed off on the calibration quality</li>
+          <li><code>FaultFlag.CALIBRATION_DRIFT</code> is in <code>schemas.py</code> — raise it if a runtime check detects the calibration may be stale (e.g. reprojection error metric)</li>
+          <li>Config key <code>horizontal_fov_deg: 81.0</code> can stay as a fallback when no calibration file is present — keeps the sim path working</li>
+          <li>OpenCV's <code>calibrateCamera()</code> output drops straight in — no special format needed</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /section G -->
+
+</div><!-- /page -->
+
+<div class="footer">
+  SkyScouter · branch <strong>feature/jetson-live-camera-runtime</strong> · Jetson Orin Nano Super · YOLOv26n TensorRT FP32 imgsz 1024 · SIYI A8 Mini Gimbal · Pixhawk 6X / ArduPilot MAVLink · 2026-05-28
+</div>
+
+</body>
+</html>

@@ -36,7 +36,7 @@ export LD_LIBRARY_PATH="$CUDSS_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # ── Colours ──────────────────────────────────────────────────────────────────
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'
-B='\033[0;34m'; C='\033[0;36m'; W='\033[1;37m'; N='\033[0m'
+B='\033[0;34m'; C='\033[0;36m'; W='\033[1;37m'; D='\033[2m'; N='\033[0m'
 
 ok()   { echo -e "${G}  ✓ $*${N}"; }
 info() { echo -e "${B}  → $*${N}"; }
@@ -47,6 +47,12 @@ hdr()  { echo -e "\n${W}━━━  $*  ━━━${N}"; }
 # ── Helper: run python inside the venv with correct LD_LIBRARY_PATH ──────────
 pyrun() { LD_LIBRARY_PATH="$CUDSS_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$PY" "$@"; }
 piprun() { pyrun -m pip "$@"; }
+
+# ── Helper: project version (from pyproject.toml) ────────────────────────────
+sky_version() {
+    grep -m1 -E '^\s*version\s*=' "$REPO/pyproject.toml" 2>/dev/null \
+        | sed -E 's/.*"([^"]+)".*/\1/' || true
+}
 
 # =============================================================================
 # 1. ENVIRONMENT CHECKS
@@ -447,9 +453,9 @@ select_model() {
 
     hdr "Available models — $MODELS_DIR"
     echo ""
-    printf "  ${W}%-3s  %-40s  %-6s  %-7s  %s${N}\n" \
-        "#" "Model directory" ".pt" ".engine" "Engine / L4T status"
-    echo "  ---  ----------------------------------------  ------  -------  --------------------------"
+    printf "  ${W}%-3s  %-40s  %-5s  %-8s  %s${N}\n" \
+        "#" "model directory" ".pt" "engine" "engine / L4T status"
+    echo -e "  ${D}---  ----------------------------------------  -----  --------  -------------------------${N}"
 
     local -a SHOW_DIRS=()
     local -a SHOW_PT=()
@@ -458,27 +464,26 @@ select_model() {
     for dir in "${ALL_DIRS[@]}"; do
         local name; name=$(basename "$dir")
 
-        # ── .pt status ───────────────────────────────────────────────────────
-        local pt_label="  ✗"
-        local pt_path=""
+        # ── .pt status (ASCII token + separate colour → printf stays aligned) ─
+        local pt_word="--"; local pt_color="$R"; local pt_path=""
         for f in "$dir/best.pt" "$dir/last.pt"; do
             if [ -f "$f" ]; then
                 local sz; sz=$(stat -c%s "$f" 2>/dev/null || echo 0)
                 if [ "$sz" -gt 10000 ]; then
-                    pt_label="  ✓"
-                    [ "$(basename "$f")" = "last.pt" ] && pt_label=" last"
+                    pt_word="✓"; pt_color="$G"
+                    [ "$(basename "$f")" = "last.pt" ] && pt_word="last"
                     pt_path="$f"; break
                 else
-                    pt_label=" LFS"   # git-LFS pointer, not real weights
+                    pt_word="LFS"; pt_color="$Y"   # git-LFS pointer, not real weights
                 fi
             fi
         done
 
         # ── .engine status ───────────────────────────────────────────────────
-        local eng_label="  ✗"
+        local eng_word="--"; local eng_color="$R"
         local eng_info="-"
         if [ -f "$dir/best.engine" ]; then
-            eng_label="  ✓"
+            eng_word="✓"; eng_color="$G"
             local manifest="$dir/best.export_manifest.json"
             if [ -f "$manifest" ] && [ -x "$PY" ]; then
                 local built_on
@@ -505,10 +510,13 @@ except Exception: print('?')
         if [ "$PURPOSE" = "export" ] && [ -z "$pt_path" ]; then
             continue   # needs a real .pt — skip dirs with only pointer/no .pt
         fi
-        [ "$eng_label" = "  ✗" ] && [ "$PURPOSE" = "pipeline" ] && \
+        if [ "$eng_word" = "--" ] && [ "$PURPOSE" = "pipeline" ]; then
             eng_info="${Y}no engine — export first${N}"
+        fi
 
-        printf "  ${C}%-3s${N}  %-40s  %-6s  %-7s  " "$n)" "$name" "$pt_label" "$eng_label"
+        # Keep aligned fields ASCII-only; apply colour outside each width spec.
+        printf "  ${C}%-3s${N}  %-40.40s  %b%-5s%b  %b%-8s%b  " \
+            "$n)" "$name" "$pt_color" "$pt_word" "$N" "$eng_color" "$eng_word" "$N"
         echo -e "$eng_info"
 
         SHOW_DIRS+=("$dir")
@@ -951,39 +959,67 @@ get_jetson_ip() {
 # =============================================================================
 # 7. MENU
 # =============================================================================
+# Rendering rule (avoids the classic multibyte-misalignment bug): every field
+# that printf aligns (%-Ns) holds ASCII only.  Colour codes are zero-width and
+# any Unicode glyph (⚠, →, ·) lives only in the trailing, un-aligned part of a
+# line — so column widths always match what the eye sees.
+RULE="──────────────────────────────────────────────────────────"
+
+_sect() { printf "\n  ${G}%s${N}  ${D}%s${N}\n" "$1" "${2:-}"; }
+_prow() { printf "   ${C}%2s${N}   ${W}%-24s${N} ${D}%s${N}\n" "$1" "$2" "${3:-}"; }
+_wrow() { printf "   ${Y}%2s${N}   ${W}%-24s${N} ${D}%-10s${N} ${R}⚠ REAL FLIGHT${N}\n" "$1" "$2" "$3"; }
+
 show_menu() {
     while true; do
         JETSON_IP=$(get_jetson_ip)
         MODEL_COUNT=$(find "$REPO/data/models" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
         ENGINE_COUNT=$(find "$REPO/data/models" -name "best.engine" 2>/dev/null | wc -l)
+        local VER L4T CUDA_V
+        VER=$(sky_version); VER="${VER:-0.0.0}"
+        L4T=$(grep -oP 'REVISION: \K[0-9.]+' /etc/nv_tegra_release 2>/dev/null || echo "?")
+        CUDA_V=$(ls -d /usr/local/cuda-* 2>/dev/null | sed 's#.*/cuda-##' | sort -V | tail -1)
 
-        echo -e "\n${C}╔══════════════════════════════════════════════════════╗"
-        echo -e "║            SkyScouter — Jetson Launcher              ║"
-        echo -e "╠══════════════════════════════════════════════════════╣"
-        printf  "║  Models : %-43s║\n" "$MODEL_COUNT dirs  ($ENGINE_COUNT with .engine)  — selected at runtime"
-        printf  "║  Jetson : %-43s║\n" "${JETSON_IP:-not configured}  →  Camera: 192.168.144.25"
-        echo -e "╠══════════════════════════════════════════════════════╣"
-        echo -e "║  PIPELINE   (you pick the operator view next)        ║"
-        echo -e "║    1) Live pipeline             (gimbal follow ON)   ║"
-        echo -e "║    2) Live pipeline             (gimbal follow OFF)  ║"
-        echo -e "║    3) Pipeline + FC dry-run     (no commands sent)   ║"
-        echo -e "║    4) Pipeline + FC LIVE  ⚠ REAL FLIGHT (gimbal ON)  ║"
-        echo -e "║    5) Pipeline + FC LIVE  ⚠ REAL FLIGHT (gimbal OFF) ║"
-        echo -e "║    6) Set yaw PID gains in config                    ║"
-        echo -e "╠══════════════════════════════════════════════════════╣"
-        echo -e "║  TOOLS                                               ║"
-        echo -e "║    7) Export TRT engine from .pt weights             ║"
-        echo -e "║    8) Preflight check  (camera + deps + config)      ║"
-        echo -e "║    9) Live smoke test  (30-sec camera pipeline run)  ║"
-        echo -e "║   10) Verify environment                             ║"
-        echo -e "║   11) Configure Ethernet IP for camera               ║"
-        echo -e "║   12) Re-run full setup                  (needs net) ║"
-        echo -e "║   13) Sync Python dependencies           (needs net) ║"
-        echo -e "║   14) Autostart (systemd) — install / enable / logs  ║"
-        echo -e "║   15) Run unit tests  (pytest suite — offline)       ║"
-        echo -e "╠══════════════════════════════════════════════════════╣"
-        echo -e "║    0) Exit                                           ║"
-        echo -e "╚══════════════════════════════════════════════════════╝${N}"
+        # ── banner ──────────────────────────────────────────────────────────────
+        echo ""
+        echo -e "  ${C}${RULE}${N}"
+        echo -e "   ${W}SkyScouter${N} ${D}—${N} ${C}Jetson Launcher${N}                       ${D}v${VER}${N}"
+        echo -e "  ${C}${RULE}${N}"
+
+        # ── status block ────────────────────────────────────────────────────────
+        printf  "   ${D}%-11s${N} ${W}%s${N} dirs ${D}·${N} ${W}%s${N} with .engine  ${D}(chosen at runtime)${N}\n" \
+                "models" "$MODEL_COUNT" "$ENGINE_COUNT"
+        if [ -n "$JETSON_IP" ]; then
+            printf "   ${D}%-11s${N} ${G}%s${N} ${D}→ camera${N} 192.168.144.25\n" "jetson IP" "$JETSON_IP"
+        else
+            printf "   ${D}%-11s${N} ${Y}not configured${N} ${D}(menu 11)  → camera${N} 192.168.144.25\n" "jetson IP"
+        fi
+        printf  "   ${D}%-11s${N} L4T ${W}R36.%s${N} ${D}·${N} CUDA ${W}%s${N} ${D}·${N} Orin ${W}sm_87${N}\n" \
+                "platform" "$L4T" "${CUDA_V:-?}"
+
+        # ── pipeline ────────────────────────────────────────────────────────────
+        _sect "PIPELINE" "you pick the operator view next"
+        _prow  1 "Live pipeline"          "gimbal follow ON"
+        _prow  2 "Live pipeline"          "gimbal follow OFF"
+        _prow  3 "Pipeline + FC dry-run"  "no commands sent"
+        _wrow  4 "Pipeline + FC LIVE"     "gimbal ON"
+        _wrow  5 "Pipeline + FC LIVE"     "gimbal OFF"
+        _prow  6 "Set yaw PID gains"      "kp / ki / kd in config"
+
+        # ── tools ───────────────────────────────────────────────────────────────
+        _sect "TOOLS"
+        _prow  7 "Export TRT engine"       "from .pt weights"
+        _prow  8 "Preflight check"         "camera · FC · deps · GO/NO-GO"
+        _prow  9 "Live smoke test"         "30-sec camera pipeline run"
+        _prow 10 "Verify environment"      "component status table"
+        _prow 11 "Configure Ethernet IP"   "camera subnet"
+        _prow 12 "Re-run full setup"       "needs network"
+        _prow 13 "Sync Python deps"        "needs network"
+        _prow 14 "Autostart (systemd)"     "install / enable / logs"
+        _prow 15 "Run unit tests"          "pytest suite — offline"
+
+        _sect "EXIT"
+        _prow  0 "Quit"
+
         echo ""
         read -rp "  Select option: " OPT
 

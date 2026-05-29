@@ -704,6 +704,56 @@ choose_display() {
 }
 
 PID_CONFIG="$REPO/configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml"
+print_pid_gains() {
+    "$PY" - "$PID_CONFIG" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+path = Path(sys.argv[1])
+cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+controller = ((cfg.get("guidance") or {}).get("controller") or {})
+flight = cfg.get("flight_control") or {}
+gimbal = cfg.get("gimbal_follow") or {}
+print(f"  Config: {path}")
+print("  Guidance yaw PID currently saved:")
+print(f"    mode: {controller.get('mode', 'yaw_pid')}")
+print(f"    Kp:   {controller.get('kp_yaw', 'missing')}")
+print(f"    Ki:   {controller.get('ki_yaw', 'missing')}")
+print(f"    Kd:   {controller.get('kd_yaw', 'missing')}")
+print(f"    deadband_deg:              {controller.get('deadband_deg', 'missing')}")
+print(f"    max_yaw_rate_deg_s:        {controller.get('max_yaw_rate_deg_s', 'missing')}")
+print(f"    max_delta_yaw_rate_deg_s:  {controller.get('max_delta_yaw_rate_deg_s', 'missing')}")
+print("")
+print("  These saved guidance PID values are used by options 4/5 for FC yaw correction.")
+print("  They are also recorded in each run's manifest.json.")
+print("")
+print("  Separate non-PID command limits still apply:")
+print(f"    flight_control.max_heading_deg:  {flight.get('max_heading_deg', 'missing')}")
+print(f"    flight_control.yaw_slew_deg_s:   {flight.get('yaw_slew_deg_s', 'missing')}")
+print(f"    gimbal_follow.kp_yaw:            {gimbal.get('kp_yaw', 'missing')}  (separate SIYI gimbal P gain)")
+print(f"    gimbal_follow.kp_pitch:          {gimbal.get('kp_pitch', 'missing')}  (separate SIYI gimbal P gain)")
+PY
+}
+get_pid_gain() {
+    local KEY="$1"
+    local DEFAULT="$2"
+    "$PY" - "$PID_CONFIG" "$KEY" "$DEFAULT" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+default = sys.argv[3]
+try:
+    cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    value = ((cfg.get("guidance") or {}).get("controller") or {}).get(key, default)
+    print(value)
+except Exception:
+    print(default)
+PY
+}
 _read_float_or_default() {
     local PROMPT="$1"
     local DEFAULT="$2"
@@ -723,11 +773,23 @@ configure_pid_gains() {
     if [[ ! -t 0 ]]; then
         fail "PID gain config requires interactive input."
     fi
-    echo -e "  ${W}Yaw PID gains config${N} ${B}($PID_CONFIG)${N}"
-    local KP KI KD
-    KP=$(_read_float_or_default "  Kp yaw" "2.0")
-    KI=$(_read_float_or_default "  Ki yaw" "0.0")
-    KD=$(_read_float_or_default "  Kd yaw" "0.0")
+    echo -e "  ${W}Yaw PID gains monitor${N}"
+    print_pid_gains
+    echo ""
+    read -rp "  Change guidance yaw PID gains now? [y/N]: " CHANGE_PID
+    CHANGE_PID="${CHANGE_PID:-N}"
+    if [[ ! "$CHANGE_PID" =~ ^[Yy]$ ]]; then
+        info "PID gains unchanged."
+        return 0
+    fi
+    echo -e "  ${W}Set guidance yaw PID gains${N}"
+    local KP KI KD CUR_KP CUR_KI CUR_KD
+    CUR_KP=$(get_pid_gain "kp_yaw" "2.0")
+    CUR_KI=$(get_pid_gain "ki_yaw" "0.0")
+    CUR_KD=$(get_pid_gain "kd_yaw" "0.0")
+    KP=$(_read_float_or_default "  Kp yaw" "$CUR_KP")
+    KI=$(_read_float_or_default "  Ki yaw" "$CUR_KI")
+    KD=$(_read_float_or_default "  Kd yaw" "$CUR_KD")
     "$PY" - "$PID_CONFIG" "$KP" "$KI" "$KD" <<'PY'
 from pathlib import Path
 import sys
@@ -781,6 +843,8 @@ if in_controller:
 path.write_text("\n".join(out) + "\n", encoding="utf-8")
 PY
     ok "Updated PID gains in $(basename "$PID_CONFIG"): Kp=$KP Ki=$KI Kd=$KD"
+    echo ""
+    print_pid_gains
 }
 
 # Ask the operator for the takeoff/hold altitude before the 'fly' gate.
@@ -1003,7 +1067,7 @@ show_menu() {
         _prow  3 "Pipeline + FC dry-run"  "no commands sent"
         _wrow  4 "Pipeline + FC LIVE"     "gimbal ON"
         _wrow  5 "Pipeline + FC LIVE"     "gimbal OFF"
-        _prow  6 "Set yaw PID gains"      "kp / ki / kd in config"
+        _prow  6 "Set/monitor PID gains"  "show or change saved kp / ki / kd"
 
         # ── tools ───────────────────────────────────────────────────────────────
         _sect "TOOLS"

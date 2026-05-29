@@ -77,8 +77,8 @@ class FlightCommand:
     guidance_valid: bool
 
     # Computed command (what we WOULD send; for dry_run=True, never reaches FC)
-    # target_heading_deg is the yaw OFFSET (correction); the link adds it to the
-    # live FC heading (fc_yaw_deg) to form the absolute heading actually sent.
+    # target_heading_deg is the yaw OFFSET (PID correction); the link adds it to
+    # the live FC heading (fc_yaw_deg) to form the absolute heading actually sent.
     target_heading_deg: float
     yaw_slew_deg_s: float
 
@@ -313,10 +313,10 @@ class MavlinkFlightLink:
         """Main entry point called once per pipeline frame.
 
         The pipeline already produces a fully-processed GuidanceHint with
-        validity flags, lock-state context, and (optionally) a filtered
-        bearing error in degrees.  We map it to a yaw *offset* (correction in
-        degrees) and hand it to the background sender thread, which converts it
-        to an absolute heading before transmission.
+        validity flags, lock-state context, filtered bearing error, and the
+        PID-computed yaw correction.  We use that PID output as the yaw
+        *offset* in degrees and hand it to the background sender thread, which
+        converts it to an absolute heading before transmission.
         """
         if not self._enabled or hint is None:
             return
@@ -335,14 +335,18 @@ class MavlinkFlightLink:
             guidance_valid = False
 
         # ---- compute target heading ----
-        # Use filtered bearing error if available, otherwise raw.  Positive
-        # bearing_error_deg = target right of optical center (our schema).
-        bearing_deg = hint.filtered_bearing_error_deg
-        if bearing_deg is None:
-            bearing_deg = hint.bearing_error_deg
+        # Positive bearing_error_deg = target right of optical center.  The
+        # guidance controller turns that error into yaw_rate_cmd_deg_s.  In the
+        # flight link we intentionally treat that PID output as the bounded yaw
+        # correction in degrees for CONDITION_YAW.  This makes the field-tuned
+        # guidance.controller kp/ki/kd values affect real FC yaw behavior.
+        try:
+            pid_correction_deg = float(hint.yaw_rate_cmd_deg_s)
+        except (TypeError, ValueError):
+            pid_correction_deg = 0.0
         target_heading = 0.0
-        if guidance_valid and bearing_deg is not None:
-            target_heading = float(bearing_deg)
+        if guidance_valid and math.isfinite(pid_correction_deg):
+            target_heading = pid_correction_deg
             if self._invert_yaw:
                 target_heading = -target_heading
             # Deadband

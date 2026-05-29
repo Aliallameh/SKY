@@ -158,7 +158,7 @@ guidance:
   controller:
     enabled: true
     mode: "yaw_pid"
-    kp_yaw: 0.1
+    kp_yaw: 2
     ki_yaw: 0
     kd_yaw: 0
     deadband_deg: 1.0

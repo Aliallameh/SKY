@@ -405,6 +405,8 @@ SELECTED_MODEL_DIR=""
 SELECTED_PT_FILE=""
 # Global set by make_temp_config():
 TEMP_CONFIG_PATH=""
+# Global set by _prompt_flight_altitude() (called from _fc_live_guard):
+FC_GUIDED_ALT_M="2.0"
 
 select_model() {
     # Scans data/models/, prints a status table, and sets SELECTED_MODEL_DIR.
@@ -773,6 +775,108 @@ PY
     ok "Updated PID gains in $(basename "$PID_CONFIG"): Kp=$KP Ki=$KI Kd=$KD"
 }
 
+# Ask the operator for the takeoff/hold altitude before the 'fly' gate.
+# Sets the global FC_GUIDED_ALT_M (forwarded to run_pipeline as --fc-alt-m).
+_prompt_flight_altitude() {
+    echo ""
+    echo -e "  ${W}Select takeoff altitude (AGL):${N}"
+    echo -e "    ${C}1)${N}   2 m   — close-range test  ${G}(default)${N}"
+    echo -e "    ${C}2)${N}   5 m"
+    echo -e "    ${C}3)${N}  10 m"
+    echo -e "    ${C}4)${N}  Custom"
+    local ALT_CHOICE
+    read -rp "  Choice [1]: " ALT_CHOICE
+    ALT_CHOICE="${ALT_CHOICE:-1}"
+    case "$ALT_CHOICE" in
+        1) FC_GUIDED_ALT_M="2.0"  ;;
+        2) FC_GUIDED_ALT_M="5.0"  ;;
+        3) FC_GUIDED_ALT_M="10.0" ;;
+        4)
+            local CUSTOM_ALT
+            read -rp "  Enter altitude in metres (1.0 – 30.0): " CUSTOM_ALT
+            CUSTOM_ALT="${CUSTOM_ALT:-2.0}"
+            if "$PY" -c "v=float('${CUSTOM_ALT}'); assert 1.0 <= v <= 30.0" 2>/dev/null; then
+                FC_GUIDED_ALT_M="$CUSTOM_ALT"
+            else
+                warn "Invalid value '${CUSTOM_ALT}' — must be 1.0 to 30.0 m. Defaulting to 2.0 m."
+                FC_GUIDED_ALT_M="2.0"
+            fi
+            ;;
+        *)
+            warn "Unknown choice '${ALT_CHOICE}' — defaulting to 2.0 m."
+            FC_GUIDED_ALT_M="2.0"
+            ;;
+    esac
+    ok "Takeoff altitude: ${FC_GUIDED_ALT_M} m AGL"
+}
+
+# Passive go/no-go check run right before the 'fly' prompt.  PURELY read-only:
+# it confirms (1) the FC serial port exists and pyserial can open it, and
+# (2) the RTSP camera host:port is TCP-reachable.  It NEVER arms the FC, never
+# sends takeoff, and never opens a decode pipeline.  Returns 1 on any failure so
+# the caller can WARN — it does not hard-fail, because the operator may still
+# choose to proceed (e.g. camera still powering up).
+_fc_preflight() {
+    local CFG="${1:-configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml}"
+    cd "$REPO"
+
+    # Pull serial_port and source.url out of the deploy config.
+    local PORT URL
+    PORT=$(pyrun -c "import yaml,sys; c=yaml.safe_load(open('$CFG')); print((c.get('flight_control') or {}).get('serial_port','/dev/ttyACM0'))" 2>/dev/null)
+    URL=$(pyrun -c "import yaml,sys; c=yaml.safe_load(open('$CFG')); print((c.get('source') or {}).get('url',''))" 2>/dev/null)
+
+    local RC=0
+
+    # --- FC serial port ---------------------------------------------------
+    # /dev/pixhawk is the preferred stable symlink (see scripts/dev/99-pixhawk.rules).
+    # If it doesn't exist we fall back to the raw ttyACM*, with a hint to install
+    # the udev rule.
+    if [[ "$PORT" == *"pixhawk"* && ! -e "$PORT" ]]; then
+        warn "/dev/pixhawk symlink not found — udev rule not installed yet."
+        info "  Fix (one-time): sudo cp '$REPO/scripts/dev/99-pixhawk.rules' /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=tty"
+        # Fall back to raw ttyACM* for this session
+        PORT=$(ls /dev/ttyACM* 2>/dev/null | sort | head -1)
+        if [[ -n "$PORT" ]]; then
+            info "  Falling back to $PORT for this session."
+        fi
+    fi
+    if [[ -z "$PORT" || ! -e "$PORT" ]]; then
+        warn "FC serial port not present — is the Pixhawk plugged in / powered?"
+        local ALTS
+        ALTS=$(ls /dev/ttyACM* 2>/dev/null | tr '\n' ' ')
+        if [[ -n "$ALTS" ]]; then
+            warn "Found these ports: $ALTS (will be tried automatically at connect time)"
+        else
+            warn "No /dev/ttyACM* found — check USB cable and FC power."
+        fi
+        RC=1
+    elif ! pyrun -c "import serial; serial.Serial('$PORT',115200,timeout=0.5).close()" 2>/dev/null; then
+        warn "FC serial port '$PORT' exists but pyserial could not open it (in use / permissions?)."
+        RC=1
+    else
+        ok "FC serial port '$PORT' openable."
+    fi
+
+    # --- RTSP camera reachability ----------------------------------------
+    if [[ -z "$URL" ]]; then
+        warn "No source.url in $CFG — cannot check camera reachability."
+        RC=1
+    else
+        local HOST RPORT
+        HOST=$(echo "$URL" | sed -E 's#^[a-zA-Z]+://([^/@]*@)?([^:/]+).*#\2#')
+        RPORT=$(echo "$URL" | sed -E 's#^[a-zA-Z]+://([^/@]*@)?[^:/]+:([0-9]+).*#\2#')
+        [ "$RPORT" = "$URL" ] && RPORT=554
+        if pyrun -c "import socket,sys; s=socket.create_connection(('$HOST',int('$RPORT')),3); s.close()" 2>/dev/null; then
+            ok "RTSP camera $HOST:$RPORT is reachable."
+        else
+            warn "RTSP camera $HOST:$RPORT not reachable — air-unit may still be powering up."
+            RC=1
+        fi
+    fi
+
+    return $RC
+}
+
 # Guard for the FC LIVE run types.  REFUSES in non-interactive mode so systemd
 # cannot arm the FC and take off on boot; otherwise requires a literal "fly".
 _fc_live_guard() {
@@ -780,8 +884,15 @@ _fc_live_guard() {
         fail "FC LIVE requires interactive confirmation. " \
              "Refusing to run from a non-TTY context (systemd / ssh -T)."
     fi
-    warn "FC LIVE will arm the FC and take off to flight_control.guided_alt_m"
-    read -rp "  Type 'fly' to confirm real flight: " CONFIRM
+    # Non-blocking readiness check — warns but does not abort.
+    if ! _fc_preflight; then
+        warn "Pre-flight check reported issues above. You can still proceed, but takeoff may fail."
+    fi
+    # Altitude selection — sets FC_GUIDED_ALT_M (forwarded to --fc-alt-m).
+    _prompt_flight_altitude
+    echo ""
+    warn "FC LIVE will arm the FC and take off to ${FC_GUIDED_ALT_M} m AGL"
+    read -rp "  Type 'fly' to confirm real flight at ${FC_GUIDED_ALT_M} m: " CONFIRM
     [[ "$CONFIRM" == "fly" ]] || { info "Cancelled."; return 1; }
     return 0
 }
@@ -791,7 +902,8 @@ run_preflight() {
     cd "$REPO"
     pyrun scripts/dev/jetson_preflight_check.py \
         --config configs/deploy_jetson_yolov26_lrdd_v2_siyi_a8_mini_1080p.yaml \
-        --probe-rtsp
+        --probe-rtsp \
+        --probe-fc
 }
 
 run_smoke() {
@@ -941,6 +1053,7 @@ run_option() {
             run_pipeline "${DISP[@]}" \
                 --flight-control-enabled \
                 --flight-control-live \
+                --fc-alt-m "$FC_GUIDED_ALT_M" \
                 "${EXTRA[@]}"
             ;;
         5)
@@ -952,6 +1065,7 @@ run_option() {
                 --flight-control-enabled \
                 --flight-control-live \
                 --no-gimbal-follow \
+                --fc-alt-m "$FC_GUIDED_ALT_M" \
                 "${EXTRA[@]}"
             ;;
         6)

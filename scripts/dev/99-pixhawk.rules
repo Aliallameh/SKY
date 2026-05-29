@@ -1,0 +1,17 @@
+# udev rule: stable /dev/pixhawk symlink for ArduPilot Pixhawk6X
+#
+# The Pixhawk6X exposes two CDC-ACM interfaces over USB.  After an unplug+replug
+# Linux may assign a different ACM number (ttyACM0 or ttyACM1) depending on
+# whether the old descriptor was still registered.  This rule pins the MAIN
+# MAVLink interface (USB interface 00) to /dev/pixhawk so the serial_port in
+# the SkyScouter config never needs to change.
+#
+# Install (one-time, on the Jetson):
+#   sudo cp scripts/dev/99-pixhawk.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=tty
+#   ls -la /dev/pixhawk    # should show symlink -> ttyACM0 (or ttyACM1)
+#
+# Verify after replug:
+#   ls -la /dev/pixhawk    # must still exist
+#
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="5740", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="pixhawk", GROUP="dialout", MODE="0660"

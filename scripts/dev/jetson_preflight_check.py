@@ -34,6 +34,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--probe-camera", action="store_true", help="Try opening the camera through OpenCV.")
     parser.add_argument("--probe-rtsp", action="store_true", help="Try opening an RTSP/IP camera stream.")
     parser.add_argument(
+        "--probe-fc",
+        action="store_true",
+        help="Passively check the flight controller link (heartbeat only — never arms or takes off).",
+    )
+    parser.add_argument("--fc-serial", default=None, help="Override flight_control.serial_port for the FC probe.")
+    parser.add_argument("--fc-baud", type=int, default=None, help="Override flight_control.baud for the FC probe.")
+    parser.add_argument(
         "--output-dir",
         default=None,
         help="Defaults to data/outputs/jetson_preflight_<timestamp>.",
@@ -166,6 +173,101 @@ def rtsp_probe(url: str, timeout_s: float = 15.0) -> Dict[str, Any]:
         return {"ok": False, "url": url, "error": str(exc)}
 
 
+def fc_probe(
+    config_path: Path,
+    serial_override: Optional[str],
+    baud_override: Optional[int],
+    timeout_s: float = 8.0,
+) -> Dict[str, Any]:
+    """Passive flight-controller readiness check.
+
+    Opens a MAVLink connection, waits for a heartbeat, and reports the FC's
+    current state. This is STRICTLY read-only: it never arms, never changes
+    mode, and never sends a takeoff command. The engines get no power from
+    this check — it only confirms we can talk to the FC and that GUIDED mode
+    is available, so we know we are ready to fly.
+    """
+    port = serial_override
+    baud = baud_override
+    if port is None or baud is None:
+        try:
+            import yaml  # type: ignore
+
+            cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            fc = cfg.get("flight_control", {}) or {}
+            if port is None:
+                port = fc.get("serial_port", "/dev/ttyACM0")
+            if baud is None:
+                baud = int(fc.get("baud", 115200))
+        except Exception as exc:
+            return {"ok": False, "error": f"could not read flight_control config: {exc}"}
+    port = port or "/dev/ttyACM0"
+    baud = int(baud or 115200)
+
+    if not Path(port).exists():
+        return {
+            "ok": False,
+            "serial_port": port,
+            "baud": baud,
+            "error": f"serial port {port} does not exist (FC not connected / not powered?)",
+        }
+
+    try:
+        from pymavlink import mavutil  # type: ignore
+    except Exception as exc:
+        return {"ok": False, "serial_port": port, "baud": baud, "error": f"pymavlink import failed: {exc}"}
+
+    conn = None
+    try:
+        conn = mavutil.mavlink_connection(port, baud=baud)
+        hb = conn.wait_heartbeat(timeout=timeout_s)
+        if hb is None:
+            return {
+                "ok": False,
+                "serial_port": port,
+                "baud": baud,
+                "heartbeat": False,
+                "error": f"no MAVLink heartbeat within {timeout_s:.0f}s on {port}@{baud}",
+            }
+
+        flight_mode = None
+        guided_available: Optional[bool] = None
+        armed = None
+        try:
+            flight_mode = conn.flightmode
+        except Exception:
+            flight_mode = None
+        try:
+            mapping = conn.mode_mapping() or {}
+            guided_available = "GUIDED" in mapping
+        except Exception:
+            guided_available = None
+        try:
+            armed = bool(conn.motors_armed())
+        except Exception:
+            armed = None
+
+        return {
+            "ok": bool(hb is not None) and (guided_available is not False),
+            "serial_port": port,
+            "baud": baud,
+            "heartbeat": True,
+            "target_system": getattr(conn, "target_system", None),
+            "target_component": getattr(conn, "target_component", None),
+            "flight_mode": flight_mode,
+            "armed": armed,
+            "guided_available": guided_available,
+        }
+    except Exception as exc:
+        return {"ok": False, "serial_port": port, "baud": baud, "error": str(exc)}
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
+
+
 def default_output_dir() -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return Path("data") / "outputs" / f"jetson_preflight_{stamp}"
@@ -191,6 +293,21 @@ def write_markdown(report: Dict[str, Any], path: Path) -> None:
     lines.append(f"- v4l2 formats captured: `{bool(report['camera'].get('formats', {}).get('stdout'))}`")
     if "opencv_probe" in report["camera"]:
         lines.append(f"- OpenCV probe ok: `{report['camera']['opencv_probe'].get('ok')}`")
+    if "rtsp_probe" in report["camera"]:
+        lines.append(f"- RTSP probe ok: `{report['camera']['rtsp_probe'].get('ok')}`")
+    fc = report.get("flight", {}).get("fc_probe")
+    if fc is not None:
+        lines.extend(["", "## Flight Controller (passive — never arms)", ""])
+        lines.append(f"- FC link ready: `{fc.get('ok')}`")
+        lines.append(f"- Heartbeat: `{fc.get('heartbeat')}`")
+        lines.append(f"- Flight mode: `{fc.get('flight_mode')}`")
+        lines.append(f"- Armed: `{fc.get('armed')}`")
+        lines.append(f"- GUIDED available: `{fc.get('guided_available')}`")
+        if fc.get("error"):
+            lines.append(f"  - `{str(fc['error']).splitlines()[0][:180]}`")
+    if report.get("ready_to_fly") is not None:
+        verdict = "GO" if report["ready_to_fly"] else "NO-GO"
+        lines.extend(["", f"## Flight Readiness: **{verdict}**", ""])
     lines.extend(["", "See `preflight_report.json` for full command output.", ""])
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -247,6 +364,10 @@ def main() -> int:
             "error": "No RTSP URL provided and source.url missing from config.",
         }
 
+    flight: Dict[str, Any] = {}
+    if args.probe_fc:
+        flight["fc_probe"] = fc_probe(Path(args.config), args.fc_serial, args.fc_baud)
+
     report = {
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "host": {
@@ -259,8 +380,23 @@ def main() -> int:
         "required": required,
         "optional": optional,
         "camera": camera,
+        "flight": flight,
     }
     report["overall_ok"] = all(item.get("ok") for item in required.values())
+
+    # GO/NO-GO flight verdict: only meaningful when both the camera stream and
+    # the FC link were actually probed. ready_to_fly stays None if either probe
+    # was skipped, so a plain preflight (no --probe-* flags) does not claim GO.
+    rtsp_ok = camera.get("rtsp_probe", {}).get("ok") if "rtsp_probe" in camera else None
+    fc_ok = flight.get("fc_probe", {}).get("ok") if "fc_probe" in flight else None
+    if rtsp_ok is None and fc_ok is None:
+        report["ready_to_fly"] = None
+    else:
+        report["ready_to_fly"] = bool(
+            report["overall_ok"]
+            and (rtsp_ok is True)
+            and (fc_ok is True)
+        )
 
     json_path = out_dir / "preflight_report.json"
     md_path = out_dir / "preflight_report.md"
@@ -270,6 +406,21 @@ def main() -> int:
     print(f"Wrote {json_path}")
     print(f"Wrote {md_path}")
     print("PASS" if report["overall_ok"] else "CHECK REQUIRED ITEMS")
+
+    if args.probe_fc:
+        fc = report["flight"].get("fc_probe", {})
+        if fc.get("ok"):
+            print(
+                f"FC link READY (heartbeat from sys {fc.get('target_system')}, "
+                f"mode={fc.get('flight_mode')}, armed={fc.get('armed')}, "
+                f"guided_available={fc.get('guided_available')})"
+            )
+        else:
+            print(f"FC link NOT READY: {fc.get('error', 'unknown')}")
+
+    if report["ready_to_fly"] is not None:
+        print("FLIGHT READINESS: GO" if report["ready_to_fly"] else "FLIGHT READINESS: NO-GO")
+
     return 0 if report["overall_ok"] else 2
 
 

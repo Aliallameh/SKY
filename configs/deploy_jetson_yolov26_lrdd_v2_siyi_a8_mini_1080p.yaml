@@ -45,9 +45,20 @@ source:
   expected_height: 1080
   fps: 30.0
   open_timeout_s: 10.0
-  read_timeout_s: 5.0
+  # Time the pipeline will wait for a new frame before aborting with "no new
+  # frames".  5 s was too tight: when the GStreamer nvv4l2decoder pipeline posts
+  # EOS (HEVC decode error / network blip) the reader loop reconnects with:
+  #   1 s reconnect_delay_s + up to 10 s for GStreamer pipeline get_state.
+  # That can exceed 5 s.  20 s gives the reconnect a comfortable margin while
+  # still catching a genuinely dead camera faster than the 60 s cold-boot grace.
+  read_timeout_s: 20.0
   reconnect_delay_s: 1.0
-  first_frame_timeout_s: 20.0
+  # Field cold-boot grace: the Jetson is usually up before the SIYI air-unit
+  # has powered on and is serving a decodable stream.  The source starts the
+  # instant the first frame decodes, so a warm camera is unaffected by a large
+  # budget; this only sets how long we tolerate a not-yet-ready camera before
+  # aborting.  20s was too tight in the field (1/10 cold boots succeeded).
+  first_frame_timeout_s: 60.0
   max_frames: null
   frame_stride: 1
   strict: true
@@ -147,9 +158,9 @@ guidance:
   controller:
     enabled: true
     mode: "yaw_pid"
-    kp_yaw: 2.0
-    ki_yaw: 0.0
-    kd_yaw: 0.0
+    kp_yaw: 0.1
+    ki_yaw: 0
+    kd_yaw: 0
     deadband_deg: 1.0
     max_yaw_rate_deg_s: 45.0
     max_delta_yaw_rate_deg_s: 20.0
@@ -193,7 +204,12 @@ gimbal_follow:
 flight_control:
   enabled: false              # off until explicitly opted in
   dry_run: true               # computed-but-not-sent by default
-  serial_port: "/dev/ttyACM0" # USB to ArduPilot; alt: /dev/serial/by-id/usb-ArduPilot_*-if00, /dev/ttyTHS1
+  # /dev/pixhawk is a stable udev symlink created by scripts/dev/99-pixhawk.rules
+  # (see README or run `sudo scripts/dev/install_udev_rules.sh`).  It always
+  # points to the Pixhawk's main MAVLink interface regardless of whether Linux
+  # assigns it ACM0 or ACM1 after a replug.  Falls back to ttyACM0 at runtime
+  # if the symlink is absent (see MavlinkFlightLink._resolve_serial_port).
+  serial_port: "/dev/pixhawk"
   baud: 115200                # 115200 for USB-ACM, 921600 for telemetry radios
   heartbeat_timeout_s: 8.0    # wait for FC heartbeat before declaring connect failure
   command_delay_s: 3.0        # wait this long after connect before any FC command

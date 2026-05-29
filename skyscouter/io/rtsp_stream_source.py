@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -241,6 +242,7 @@ class RtspStreamSource(BaseFrameSource):
         self._height = self._expected_height or 0
         self._last_reconnect_utc: Optional[str] = None
         self._capture_backend: str = "unknown"
+        self._reconnect_count = 0
 
         # Optional frame observer — called on every decoded frame before the
         # latest-frame buffer is updated.  Used by InterFrameLKThread to
@@ -349,19 +351,40 @@ class RtspStreamSource(BaseFrameSource):
             self._reader.join(timeout=2.0)
 
     def _wait_for_first_frame(self) -> None:
-        deadline = time.monotonic() + self._first_frame_timeout_s
+        # On a FIELD cold-boot the Jetson is usually up before the SIYI camera /
+        # air-unit has finished powering on and is serving a decodable stream.
+        # While we wait, the only console output is the NvMM decoder's own init
+        # lines (".. NvMMLiteBlockCreate .."), so a not-yet-ready camera looks
+        # exactly like a frozen hang.  Emit a heartbeat every few seconds so the
+        # operator can SEE we are waiting for the camera (not stuck), and give a
+        # clear, actionable message if the grace period really does expire.
+        start = time.monotonic()
+        deadline = start + self._first_frame_timeout_s
+        next_log = start + 5.0
         with self._condition:
             while self._latest_frame is None and not self._closed:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
                 self._condition.wait(timeout=min(0.25, remaining))
+                now = time.monotonic()
+                if now >= next_log and self._latest_frame is None and not self._closed:
+                    print(
+                        f"[rtsp] waiting for first frame from {self._redacted_url()} "
+                        f"({now - start:.0f}/{self._first_frame_timeout_s:.0f}s, "
+                        f"backend={self._capture_backend}, reconnects={self._reconnect_count}) "
+                        "— camera may still be powering up",
+                        file=sys.stderr, flush=True,
+                    )
+                    next_log = now + 5.0
 
             if self._latest_frame is None:
                 self._closed = True
                 error = self._reader_error or (
                     f"Timed out waiting {self._first_frame_timeout_s:.1f}s for first RTSP frame "
-                    f"from {self._redacted_url()}"
+                    f"from {self._redacted_url()} — camera not streaming yet? Check the "
+                    f"camera power/link; a cold field boot can take longer than this budget "
+                    f"(raise source.first_frame_timeout_s)."
                 )
                 if self._strict:
                     raise RuntimeError(error)
@@ -373,10 +396,24 @@ class RtspStreamSource(BaseFrameSource):
         # EOS/ERROR on the bus) but stops delivering frames.
         _EMPTY_READ_LIMIT = 20
 
+        attempt = 0
         while True:
             with self._condition:
                 if self._closed:
                     return
+
+            # The first iteration is the initial connect; every iteration after
+            # is a reconnect.  Surface reconnects to the operator — during a
+            # field cold-boot the camera may refuse several times before it is
+            # ready, and silent retries look identical to a frozen hang.
+            attempt += 1
+            if attempt > 1:
+                self._reconnect_count += 1
+                print(
+                    f"[rtsp] reconnect attempt {self._reconnect_count} to "
+                    f"{self._redacted_url()} (backend={self._capture_backend})",
+                    file=sys.stderr, flush=True,
+                )
 
             cap = self._open_capture()
             if cap is None:

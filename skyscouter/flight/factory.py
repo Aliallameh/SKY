@@ -27,5 +27,17 @@ def build_mavlink_flight_link(
         output_dir=output_dir,
         run_id=run_id,
     )
-    link.start()
+    ok = link.start()
+    # In LIVE mode (real serial + real FC commands), a failed connect must be a
+    # hard abort — silently continuing without a FC link means the drone never
+    # takes off while the operator assumes it will.  The pipeline catches this
+    # RuntimeError, logs "Pipeline failed: ..." and exits cleanly.
+    # Dry-run mode never opens serial, so start() always succeeds there.
+    if not ok and not link.dry_run:
+        raise RuntimeError(
+            f"FC LIVE mode: could not connect to flight controller — "
+            f"{link.status_text()}. "
+            "Check the USB cable, FC power, and that /dev/ttyACM0 appears in "
+            "`ls /dev/ttyACM*` before running."
+        )
     return link

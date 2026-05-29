@@ -147,6 +147,11 @@ class MavlinkFlightLink:
         self._guided_alt_m = max(0.5, float(self._cfg.get("guided_alt_m", 2.0)))
         self._post_takeoff_settle_s = max(0.0, float(self._cfg.get("post_takeoff_settle_s", 4.0)))
         self._no_alt_takeoff_confirm_s = max(0.5, float(self._cfg.get("no_alt_takeoff_confirm_s", 3.0)))
+        # Maximum number of NAV_TAKEOFF commands before the state machine gives
+        # up.  Three attempts at 5 s spacing = 15 s of trying to get airborne.
+        # If the drone cannot lift off (ground test, motors not connected, etc.)
+        # this prevents an endless ARM → TAKEOFF loop that confuses the FC.
+        self._max_takeoff_attempts = max(1, int(self._cfg.get("max_takeoff_attempts", 3)))
 
         # ---- yaw command parameters ----
         self._max_heading_deg = max(1.0, float(self._cfg.get("max_heading_deg", 15.0)))
@@ -213,6 +218,7 @@ class MavlinkFlightLink:
         self._last_guided_req_time = 0.0
         self._last_force_arm_req_time = 0.0
         self._last_takeoff_ack_result: Optional[int] = None
+        self._takeoff_max_logged = False
         self._last_error = ""
         self._last_yaw_block_reason = ""
 
@@ -498,7 +504,15 @@ class MavlinkFlightLink:
 
         # ---- now in GUIDED -> ARM -> TAKEOFF state machine ----
         if not self.is_armed():
-            self._force_arm_step()
+            # Once NAV_TAKEOFF has been sent, do NOT force-re-arm.  ArduPilot is
+            # executing (or failing) the takeoff sequence; re-arming while the
+            # command is in flight causes the ARM storm seen in the field:
+            #   ARM accepted → FC auto-disarms (drone can't lift off) →
+            #   ARM again → repeat indefinitely until the pipeline crashes.
+            # If the drone auto-disarmed mid-takeoff (obstacle, safety check),
+            # the operator should assess the situation before the code retries.
+            if not self._guided_takeoff_sent:
+                self._force_arm_step()
             return
         self._mark_takeoff_complete_if_airborne()
         if not self._takeoff_complete:
@@ -524,6 +538,72 @@ class MavlinkFlightLink:
     # MAVLink connection / heartbeat / message handling
     # ------------------------------------------------------------------
 
+    def _resolve_serial_port(self) -> str:
+        """Return the serial port to use, waiting for USB enumeration if needed.
+
+        Resolution order
+        ----------------
+        1. The configured port (serial_port in config, default /dev/pixhawk).
+           /dev/pixhawk is a udev symlink that always points to the Pixhawk's
+           main MAVLink interface, immune to ACM number changes after replug.
+        2. If that is absent, poll up to _USB_ENUM_WAIT_S for it to appear
+           (the OS needs 2–4 s to register the device after a physical replug).
+        3. If still absent and the configured port is /dev/pixhawk, also try
+           /dev/ttyACM0 (the raw device the symlink normally points at).
+        4. If still absent, scan /dev/ttyACM* for any Pixhawk and use the first.
+        5. Give up with a clear error if nothing is found.
+        """
+        import glob
+        import os
+        import sys as _sys
+
+        _USB_ENUM_WAIT_S = 5.0
+        port = self._serial_port
+
+        if not os.path.exists(port):
+            print(
+                f"[flight] {port!r} not found — waiting up to {_USB_ENUM_WAIT_S:.0f}s "
+                "for USB enumeration (just plugged in?)",
+                file=_sys.stderr, flush=True,
+            )
+            deadline = time.monotonic() + _USB_ENUM_WAIT_S
+            while not os.path.exists(port) and time.monotonic() < deadline:
+                time.sleep(0.25)
+
+        if not os.path.exists(port):
+            # Try raw ttyACM0 if we were looking for the udev symlink.
+            if "pixhawk" in port and os.path.exists("/dev/ttyACM0"):
+                print(
+                    f"[flight] {port!r} symlink absent — udev rule not installed? "
+                    "Falling back to /dev/ttyACM0.",
+                    file=_sys.stderr, flush=True,
+                )
+                port = "/dev/ttyACM0"
+
+        if not os.path.exists(port):
+            # Scan all ttyACM* as last resort.
+            alternatives = sorted(glob.glob("/dev/ttyACM*"))
+            if alternatives:
+                alt = alternatives[0]
+                print(
+                    f"[flight] {port!r} still absent; using {alt!r} "
+                    "(USB re-enumeration shifted the ACM number). "
+                    "Install the udev rule (scripts/dev/99-pixhawk.rules) to make "
+                    "this permanent: sudo cp scripts/dev/99-pixhawk.rules "
+                    "/etc/udev/rules.d/ && sudo udevadm control --reload-rules",
+                    file=_sys.stderr, flush=True,
+                )
+                port = alt
+            else:
+                self._last_error = (
+                    f"Serial port {port!r} not found and no /dev/ttyACM* alternatives — "
+                    "FC not connected or not powered?  Check `ls /dev/ttyACM*` and "
+                    "run the preflight check (jetson.sh option 8)."
+                )
+                return ""  # empty string signals caller to abort
+
+        return port
+
     def _connect(self) -> bool:
         try:
             from pymavlink import mavutil  # type: ignore[import-not-found]
@@ -534,10 +614,14 @@ class MavlinkFlightLink:
             )
             return False
 
+        port = self._resolve_serial_port()
+        if not port:
+            return False
+
         self._mavutil = mavutil
         try:
             self._master = mavutil.mavlink_connection(
-                self._serial_port,
+                port,
                 baud=self._baud,
                 autoreconnect=True,
                 source_system=250,
@@ -752,6 +836,26 @@ class MavlinkFlightLink:
         if self._master is None or self._mavutil is None:
             return
         if self._takeoff_complete:
+            return
+        # Hard cap on how many times we send NAV_TAKEOFF.  In a normal field
+        # flight the drone lifts off after the first command and _takeoff_complete
+        # fires; we only reach attempt #2 if something is genuinely wrong.
+        # More than _max_takeoff_attempts (default 3) without altitude
+        # confirmation means the drone cannot take off — stop the storm and
+        # let the operator investigate.
+        if self._takeoff_tx_count >= self._max_takeoff_attempts:
+            if not self._takeoff_max_logged:
+                import sys as _sys
+                threshold_m = max(0.35, 0.7 * self._guided_alt_m)
+                print(
+                    f"[flight] NAV_TAKEOFF sent {self._takeoff_tx_count} times without "
+                    f"altitude confirmation "
+                    f"(rel_alt={self._relative_alt_m}m, need ≥{threshold_m:.1f}m). "
+                    "Halting takeoff sequence — verify the drone is able to fly "
+                    f"(max_takeoff_attempts={self._max_takeoff_attempts} in config).",
+                    file=_sys.stderr, flush=True,
+                )
+                self._takeoff_max_logged = True
             return
         now_m = time.monotonic()
         # Don't spam NAV_TAKEOFF -- ArduPilot ignores duplicates anyway.
